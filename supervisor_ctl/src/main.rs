@@ -1,12 +1,11 @@
-mod controller;
 mod model;
-mod supervisor;
+mod supervisor_ctl;
 
 use clap::Parser;
 use model::Args;
 
-use crate::model::Result;
-use crate::supervisor::supervisor;
+use supervisor::Result;
+use crate::supervisor_ctl::supervisor;
 
 fn main() -> Result<()> {
     let args = Args::parse();

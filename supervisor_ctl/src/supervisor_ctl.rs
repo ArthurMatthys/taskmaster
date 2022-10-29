@@ -1,9 +1,9 @@
-use crate::controller::load_config;
-use crate::model::{Args, Error, Programs, Result};
+use crate::model::Args;
 use std::{
     fs::File,
     io::{stdin, stdout, BufReader, Write},
 };
+use supervisor::{Error, Programs, Result};
 
 pub fn supervisor(args: Args) -> Result<()> {
     let mut programs = match File::open(args.path) {
@@ -39,7 +39,7 @@ pub fn supervisor(args: Args) -> Result<()> {
             "start" => programs.action("start", args),
             "stop" => programs.action("stop", args),
             "relaunch" => programs.action("relaunch", args),
-            "reload" => programs = load_config(args, &programs)?,
+            // "reload" => programs = load_config(args, &programs)?,
             "exit" | "quit" => break,
             _ => {
                 eprintln!("Supervisor: Unknown command : {cmd}.");

@@ -1,3 +1,4 @@
+pub mod daemon;
 mod error;
 mod program;
 mod usage;

@@ -34,7 +34,7 @@ impl Programs {
         self.programs.iter().for_each(|(key, p)| p.status(key));
     }
 
-    pub fn action(&self, action: &str, mut args: SplitWhitespace) -> () {
+    pub fn action(&self, action: &str, mut args: SplitWhitespace) {
         let usage = format!(
             "Error: {action} requires a process name
 {action} <name>            {action} a process

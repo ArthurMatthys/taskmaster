@@ -39,6 +39,16 @@ pub struct Programs {
 
 #[derive(Debug, Deserialize)]
 pub struct Program {
+    pub settings: ProgramSettings,
+    #[serde(default)]
+    pub state: Option<ProgramState>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct ProgramState {}
+
+#[derive(Debug, Deserialize)]
+pub struct ProgramSettings {
     pub cmd: String,
 
     #[serde(alias = "numprocs")]

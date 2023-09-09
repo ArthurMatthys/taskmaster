@@ -8,32 +8,29 @@ use nix::{
 use std::{
     ffi::CString,
     fmt::{Debug, Display},
-    fs::File,
-    io::{self, stdin, Result, Write},
-    os::unix::prelude::PermissionsExt,
+    fs::{self, read_dir, File},
+    io::{self, stderr, stdin, stdout, Result, Write},
+    os::unix::prelude::{AsRawFd, PermissionsExt},
     path::Path,
     process::Command,
 };
+
+fn to_io_err<E>(msg: &str, err: E) -> io::Error
+where
+    E: Display,
+{
+    io::Error::new(io::ErrorKind::Other, format!("{msg}: {err}"))
+}
 
 fn get_info(name: &str) -> Result<String> {
     let pid = unistd::getpid();
     let sid = match unistd::getsid(Some(pid)) {
         Ok(sid) => sid,
-        Err(e) => {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("Can't get sid: {e}"),
-            ))
-        }
+        Err(e) => return Err(to_io_err("Can't get sid", e)),
     };
     let guid = match unistd::getpgid(Some(pid)) {
         Ok(sid) => sid,
-        Err(e) => {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("Can't get pgid: {e}"),
-            ))
-        }
+        Err(e) => return Err(to_io_err("Can't get pgid", e)),
     };
 
     Ok(format!(
@@ -60,44 +57,28 @@ pub enum LogLevel {
 }
 
 impl Daemon {
-    /// Close all open file descriptors except standard input, output, and error (i.e. the first three file descriptors 0, 1, 2).
-    /// This ensures that no accidentally passed file descriptor stays around in the daemon process.
-    /// On Linux, this is best implemented by iterating through /proc/self/fd,
-    /// with a fallback of iterating from file descriptor 3 to the value returned by getrlimit() for RLIMIT_NOFILE.
     fn close_fds(&self) -> Result<()> {
-        let res = Command::new("ls").arg("/proc/self/fd/").output()?;
-        let fds: Vec<i32> = match std::str::from_utf8(&res.stdout) {
-            Ok(v) => v
-                .trim()
-                .split('\n')
-                .map(|v| v.parse::<i32>())
-                .filter_map(|v| v.ok())
+        let fds: Vec<i32> = match read_dir(Path::new("/proc/self/fd/")) {
+            Ok(entries) => entries
+                .filter_map(|file| file.ok())
+                .filter_map(|file| {
+                    file.file_name()
+                        .into_string()
+                        .ok()
+                        .map(|f| f.parse::<i32>().ok())
+                        .flatten()
+                })
                 .collect(),
             Err(e) => {
-                return Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    format!("Can't convert from utf8 : {e}"),
-                ))
+                let fd_max: i32 =
+                    rlimit::getrlimit(rlimit::Resource::NOFILE).map(|(soft, _)| {
+                        soft.try_into()
+                            .expect(&*format!("Fd should not be bigger than i32 : {e}"))
+                    })?;
+                (3i32..fd_max.max(3i32)).collect()
             }
         };
-        let fd_max: i32 = rlimit::getrlimit(rlimit::Resource::NOFILE)
-            .map(|(soft, _)| soft.try_into().expect("Fd should not be bigger than i32"))?;
-        let all_fds = 3i32..fd_max.max(3i32);
-        // let filtered_fds = fds
-        //     .iter()
-        //     .filter(|fd| all_fds.contains(fd))
-        //     .map(|fd| fd.clone());
-        // fds.iter().for_each(|fd| {
-        //     if all_fds.contains(fd) {
-        //         all_fds.push(*fd)
-        //     }
-        // });
-        // all_fds.append(&mut fds);
-        // eprintln!("{all_fds:?}");
-
-        // for fd in all_fds.chain(filtered_fds.clone()) {
-        // TODO We got duplicates here, but it shouldn't matter
-        for fd in all_fds.chain(fds) {
+        for fd in fds {
             if [0, 1, 2].contains(&fd) {
                 continue;
             }
@@ -107,13 +88,7 @@ impl Daemon {
                     LogLevel::Info,
                 )?,
                 Err(nix::Error::Sys(nix::errno::Errno::EBADF)) => (),
-                Err(e) => {
-                    eprintln!("error with fd {fd} : {e}");
-                    return Err(io::Error::new(
-                        io::ErrorKind::Other,
-                        format!("Can't close fd {fd} : {e}"),
-                    ));
-                }
+                Err(e) => return Err(to_io_err(&*format!("Can't close fd {fd}"), e)),
             };
         }
 
@@ -134,12 +109,7 @@ impl Daemon {
             None,
         ) {
             Ok(_) => (),
-            Err(e) => {
-                return Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    format!("Issue clearing sig mask : {e}"),
-                ));
-            }
+            Err(e) => return Err(to_io_err("Issue clearing sig mask", e)),
         }
         self.log("Signal mask reset", LogLevel::Info)?;
         Ok(())
@@ -149,12 +119,7 @@ impl Daemon {
         unsafe {
             match nix::env::clearenv() {
                 Ok(_) => (),
-                Err(e) => {
-                    return Err(io::Error::new(
-                        io::ErrorKind::Other,
-                        format!("Issue reseting environnement : {e}"),
-                    ));
-                }
+                Err(e) => return Err(to_io_err("Issue resetting environnement", e)),
             }
         }
         self.log("Environnement reseted", LogLevel::Info)?;
@@ -162,47 +127,19 @@ impl Daemon {
     }
 
     fn connect_stream(&self) -> Result<()> {
-        let mode_read = CString::new(b"r" as &[u8]).map_err(|err| {
-            io::Error::new(
-                io::ErrorKind::Other,
-                format!("Issue getting raw pointer: {err}"),
-            )
-        })?;
-        let mode_write = CString::new(b"w+" as &[u8]).map_err(|err| {
-            io::Error::new(
-                io::ErrorKind::Other,
-                format!("Issue getting raw pointer: {err}"),
-            )
-        })?;
-        let stdin = CString::new(b"stdin" as &[u8]).map_err(|err| {
-            io::Error::new(
-                io::ErrorKind::Other,
-                format!("Issue getting raw pointer: {err}"),
-            )
-        })?;
-        let stdout = CString::new(b"stdout" as &[u8]).map_err(|err| {
-            io::Error::new(
-                io::ErrorKind::Other,
-                format!("Issue getting raw pointer: {err}"),
-            )
-        })?;
-        let stderr = CString::new(b"stderr" as &[u8]).map_err(|err| {
-            io::Error::new(
-                io::ErrorKind::Other,
-                format!("Issue getting raw pointer: {err}"),
-            )
-        })?;
-        let new_std = CString::new(b"/dev/null" as &[u8]).map_err(|err| {
-            io::Error::new(
-                io::ErrorKind::Other,
-                format!("Issue getting raw pointer: {err}"),
-            )
-        })?;
-        clear_stream(stdin.as_ptr(), mode_read.as_ptr(), new_std.as_ptr());
-        clear_stream(stdout.as_ptr(), mode_write.as_ptr(), new_std.as_ptr());
-        clear_stream(stderr.as_ptr(), mode_write.as_ptr(), new_std.as_ptr());
+        unsafe {
+            let null_file = libc::open(b"/dev/null\0" as *const [u8; 10] as _, libc::O_RDWR);
+
+            libc::dup2(0, null_file);
+            libc::dup2(1, null_file);
+            libc::dup2(2, null_file);
+
+            libc::close(null_file);
+            println!("This message means that stdout was not redirected to /dev/null");
+            eprintln!("This message means that stderr was not redirected to /dev/null");
+        }
+
         self.log("Stream connected to /dev/null", LogLevel::Info)?;
-        println!("Mdr ? Yop");
         Ok(())
     }
 }
@@ -266,9 +203,14 @@ impl Daemon {
             }
         };
 
+        // TODO Not working
         daemon.connect_stream()?;
 
         daemon.log(get_info("daemon")?, LogLevel::Info)?;
+
+        // In the daemon process, reset the umask to 0, so that the file modes passed to open(), mkdir() and suchlike directly control the access mode of the created files and directories.
+
+        fs::create_dir("./bonjour/");
 
         Ok(daemon)
     }

@@ -2,13 +2,22 @@ mod controller;
 mod model;
 mod supervisor;
 
-use clap::Parser;
-use model::Args;
+use crate::model::daemon::Daemon;
 
-use crate::model::Result;
-use crate::supervisor::supervisor;
+pub const SOCKET: &str = "/tmp/taskmaster_socket";
+fn main() -> std::io::Result<()> {
+    // let args = Args::parse();
+    // supervisor(args);
+    let daemon = Daemon::create("/tmp/taskmaster.log".to_string());
 
-fn main() -> Result<()> {
-    let args = Args::parse();
-    supervisor(args)
+    if daemon.is_err() {
+        eprintln!("Error creating daemon : {daemon:#?}");
+    }
+
+    // eprintln!(
+    //     "nb max fd : {:#?}",
+    //     rlimit::getrlimit(rlimit::Resource::NOFILE)
+    // );
+
+    Ok(())
 }

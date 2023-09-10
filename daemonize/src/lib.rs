@@ -10,10 +10,12 @@ use libc::exit;
 use std::path;
 
 pub use error::{get_err, get_errno, Error, Result};
-pub use logger::{LogInfo, TintinReporter};
+pub use logger::{log, LogInfo};
 use signal::set_sig_handlers;
 
 use crate::file_handler::close_fds;
+
+const LOCKFILE: &str = "/var/lock/matt_daemon.lock";
 
 struct Mask {
     inner: libc::mode_t,
@@ -34,20 +36,14 @@ fn get_pid() -> Result<String> {
 }
 
 pub struct Daemon {
-    debug: bool,
     lock_file: String,
-    logger: TintinReporter,
     umask: Mask,
-    func: fn(TintinReporter) -> Result<()>,
+    func: fn() -> Result<()>,
 }
 
 impl Drop for Daemon {
     fn drop(&mut self) {
-        if self
-            .logger
-            .log("deleting lock file\n", LogInfo::Info, self.debug)
-            .is_err()
-        {
+        if log("deleting lock file\n", LogInfo::Info).is_err() {
             eprintln!("Exiting daemon : Could not log the deletion of the lock file");
         }
 
@@ -55,30 +51,19 @@ impl Drop for Daemon {
             eprintln!("Unable to delete lock file");
         }
 
-        if self
-            .logger
-            .log("Daemon quitted\n", LogInfo::Info, self.debug)
-            .is_err()
-        {
+        if log("Daemon quitted\n", LogInfo::Info).is_err() {
             eprintln!("Could not log the exit of the daemon");
         }
     }
 }
 
 impl Daemon {
-    pub fn new(
-        logger: TintinReporter,
-        f: fn(TintinReporter) -> Result<()>,
-        debug: bool,
-    ) -> Result<Daemon> {
-        let file = "/var/lock/matt_daemon.lock";
-        if path::Path::new(file).exists() {
+    pub fn new(f: fn() -> Result<()>) -> Result<Daemon> {
+        if path::Path::new(LOCKFILE).exists() {
             Err(Error::FileAlreadyLocked(0))
         } else {
             Ok(Daemon {
-                debug,
-                lock_file: file.to_string(),
-                logger,
+                lock_file: LOCKFILE.to_string(),
                 umask: 0.into(),
                 func: f,
             })
@@ -92,10 +77,9 @@ impl Daemon {
 
     pub fn start(self) -> Result<()> {
         unsafe {
-            self.logger
-                .log("Entering daemon mode\n", LogInfo::Info, self.debug)?;
+            log("Entering daemon mode\n", LogInfo::Info)?;
 
-            self.logger.log(get_pid()?, LogInfo::Info, self.debug)?;
+            log(get_pid()?, LogInfo::Info)?;
             match execute_fork()? {
                 ForkResult::Child => (),
                 ForkResult::Parent(_) => exit(libc::EXIT_SUCCESS),
@@ -108,39 +92,30 @@ impl Daemon {
                 ForkResult::Parent(_) => exit(libc::EXIT_SUCCESS),
             }
 
-            self.logger
-                .log("Creating lock file\n", LogInfo::Debug, self.debug)?;
+            log("Creating lock file\n", LogInfo::Debug)?;
             lock(self.lock_file.clone())?;
 
-            self.logger
-                .log("Changing file mode creation\n", LogInfo::Debug, self.debug)?;
+            log("Changing file mode creation\n", LogInfo::Debug)?;
             libc::umask(self.umask.inner);
 
-            self.logger
-                .log("Changing working directory\n", LogInfo::Debug, self.debug)?;
+            log("Changing working directory\n", LogInfo::Debug)?;
             get_err(libc::chdir(b"/\0" as *const u8 as _), Error::ChangeDir)?;
 
-            self.logger
-                .log("Closing all open files\n", LogInfo::Debug, self.debug)?;
+            log("Closing all open files\n", LogInfo::Debug)?;
             close_fds()?;
 
-            self.logger
-                .log("Seting signal handlers\n", LogInfo::Debug, self.debug)?;
+            log("Seting signal handlers\n", LogInfo::Debug)?;
             set_sig_handlers()?;
 
             redirect_stream()?;
-            self.logger.log(
+            log(
                 "Redirecting standard streams to /dev/null\n",
                 LogInfo::Debug,
-                self.debug,
             )?;
 
-            self.logger
-                .log("Daemon started properly\n", LogInfo::Info, self.debug)?;
+            log("Daemon started properly\n", LogInfo::Info)?;
 
-            (self.func)(self.logger.clone())?;
-
-            self.logger.send_mail()?;
+            (self.func)()?;
         }
         Ok(())
     }

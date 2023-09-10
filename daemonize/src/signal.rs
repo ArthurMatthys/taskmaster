@@ -1,10 +1,9 @@
-use std::{fs, io::Write, process};
-
-use chrono::Local;
+use std::{fs, process};
 
 use crate::{
     error::{get_err, Error, Result},
     file_handler::unlock,
+    logger::log,
     LogInfo,
 };
 
@@ -17,28 +16,11 @@ pub fn handle_sig(value: i32) {
         eprintln!("Cannot create dir to log signal input : {e}");
         return;
     }
-    let mut f = match fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .append(true)
-        .open("/var/log/matt_daemon/matt_daemon.log")
-        .map_err(Error::LogOpen)
-    {
-        Ok(f) => f,
-        Err(e) => {
-            eprintln!("Cannot open the log file to log signal input : {e}");
-            return;
-        }
-    };
 
-    let now = Local::now().format("%d / %m / %Y - %H : %M : %S");
     let info = LogInfo::Warn;
     let msg = format!("Received signal {value}. Exiting the daemon\n");
-    if let Err(e) = f
-        .write(format!("[{now:}] - {info:5} : {msg}").as_bytes())
-        .map_err(Error::Log)
-    {
-        eprintln!("Could not log the signal input : {e}");
+    if let Err(e) = log(msg, info) {
+        eprintln!("Error writing logs : {:?}", e);
         return;
     }
 

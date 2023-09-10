@@ -1,11 +1,11 @@
 use crate::connections::Connections;
-use daemonize::{get_err, Error, LogInfo, Result, TintinReporter};
-use std::collections::HashMap;
-use std::env;
+use core::time;
+use daemonize::{get_err, log, Error, LogInfo, Result};
 use std::io::Write;
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::os::unix::prelude::AsRawFd;
 use std::process::Command;
+use std::{env, thread};
 
 use strum::FromRepr;
 
@@ -16,59 +16,22 @@ const EXIT: &str = "exit";
 const QUIT: &str = "quit";
 const SHELL: &str = "shell";
 
-#[derive(FromRepr, PartialEq, PartialOrd, Clone)]
-enum ShellMode {
-    None = 1,
-    Shell = 2,
-    Bash = 3,
-}
-
 pub struct Client {
     stream: TcpStream,
     addr: SocketAddr,
-    shell_mode: ShellMode,
 }
 
 impl Client {
     fn new(stream: TcpStream, addr: SocketAddr) -> Self {
-        Self {
-            stream,
-            addr,
-            shell_mode: ShellMode::None,
-        }
-    }
-    fn change_shell_mode(&mut self, nb: isize) -> Result<()> {
-        let tmp = ShellMode::from_repr((self.shell_mode.clone() as isize + nb) as usize)
-            .ok_or(Error::ShellModeOverflow)?;
-        self.shell_mode = tmp;
-        Ok(())
+        Self { stream, addr }
     }
 
     fn get_addr(&self) -> String {
         self.addr.to_string()
     }
-
-    fn print_prompt(&mut self) -> Result<()> {
-        match self.shell_mode {
-            ShellMode::None => Ok(()),
-            ShellMode::Shell => self
-                .stream
-                .write_all(b"matt_daemon>")
-                .map_err(Error::WriteToStream),
-            ShellMode::Bash => self
-                .stream
-                .write_all(b"bash>")
-                .map_err(Error::WriteToStream),
-        }
-    }
 }
 
-fn read_from_fd(
-    fd: i32,
-    idx: usize,
-    clients: &mut [Client],
-    logger: &TintinReporter,
-) -> Result<bool> {
+fn read_from_fd(fd: i32, idx: usize, clients: &mut [Client]) -> Result<bool> {
     let mut data = [0_u8; SIZE_BUFF];
     let client = clients.get_mut(idx - 1).ok_or(Error::ClientGetter)?;
     unsafe {
@@ -99,26 +62,20 @@ fn read_from_fd(
     }
 }
 
-fn handle_revent_error(a: i16, addr: String, logger: &TintinReporter) -> Result<()> {
+fn handle_revent_error(a: i16, addr: String) -> Result<()> {
     if a & libc::POLLHUP != 0 {
-        logger.log(format!("Hanging up from {addr}\n"), LogInfo::Warn, false)?;
+        log(format!("Hanging up from {addr}\n"), LogInfo::Warn)?;
     } else if a & libc::POLLERR != 0 {
-        logger.log(
-            format!("Error condition from {addr}\n"),
-            LogInfo::Warn,
-            false,
-        )?;
+        log(format!("Error condition from {addr}\n"), LogInfo::Warn)?;
     } else if a & libc::POLLNVAL != 0 {
-        logger.log(
+        log(
             format!("Invalid request: fd not open from {addr}\n"),
             LogInfo::Warn,
-            false,
         )?;
     } else {
-        logger.log(
+        log(
             format!("Stream socket peer closed connection from {addr}\n"),
             LogInfo::Warn,
-            false,
         )?;
     }
     Ok(())
@@ -128,64 +85,92 @@ fn add_client(
     fds: &mut Connections,
     listener: &TcpListener,
     streams: &mut Vec<Client>,
-    logger: &TintinReporter,
 ) -> Result<()> {
     let (stream, addr) = listener.accept().map_err(Error::AcceptClient)?;
     if fds.len() >= 3 {
-        logger.log("Already 2 clients connected\n", LogInfo::Warn, false)?;
+        log("Already 2 clients connected\n", LogInfo::Warn)?;
         return Ok(());
     }
     fds.push_from_fd(stream.as_raw_fd());
-    logger.log(
+    log(
         format!("Connecting to new address : {addr}\n"),
         LogInfo::Info,
-        false,
     )?;
     streams.push(Client::new(stream, addr));
     Ok(())
 }
 
-pub fn server(logger: TintinReporter) -> Result<()> {
+pub fn server() -> Result<()> {
     let listener = TcpListener::bind(ADDRESS).map_err(Error::ClientErrorBinding)?;
 
-    let listener_fd = listener.as_raw_fd();
-    let mut fds = Connections::new();
-    fds.push_from_fd(listener_fd);
-
-    let mut clients: Vec<Client> = vec![];
     loop {
-        unsafe {
-            let _ = libc::poll(fds.as_mut_ptr(), fds.len() as u32, -1);
-            for (i, poll_fd) in fds.clone().iter().enumerate() {
-                let fd = poll_fd.fd;
-                match poll_fd.revents {
-                    0 => (),
-                    a => {
-                        if a & libc::POLLIN != 0 && a & libc::POLLRDHUP == 0 {
-                            if fd == listener_fd {
-                                add_client(&mut fds, &listener, &mut clients, &logger)?;
-                            } else if read_from_fd(fd, i, &mut clients, &logger)? {
-                                return Ok(());
-                            }
-                        }
-                        if a & libc::POLLRDHUP != 0
-                            || a & libc::POLLHUP != 0
-                            || a & libc::POLLERR != 0
-                        {
-                            eprintln!("{a}");
-                            let addr = clients
-                                .get(i - 1)
-                                .map(|client| client.get_addr())
-                                .unwrap_or_else(|| "Can't find address".to_string());
+        //// check_sigup();
+        //check_channel_sig();
+        //handle_sig(); // -> sigup (reload conf) // -> le reste (kill programm)
+        //check_child_status();
 
-                            let stream = clients.remove(i - 1);
-                            drop(stream);
-                            fds.remove(i);
-                            handle_revent_error(a, addr, &logger)?;
-                        }
-                    }
-                }
-            }
-        }
+        //match listener.accept() {
+        //    Ok(stream, addr) => (),
+        //    Err(e) => (),
+        //}
+
+        //// -> stop
+        //// -> status -> ok stop
+        ////
+
+        //for stream in stream() {
+        //    let mut buf = [];
+
+        //    stream.peek();
+        //    stream.write("existe pas");
+        //}
+
+        thread::sleep(time::Duration::from_millis(300));
     }
+    // for stream in listener.incoming() {
+    //     let Ok(stream) = stream else {
+    //         return Error
+    //     }
+    // }
+
+    // let listener_fd = listener.as_raw_fd();
+    // let mut fds = Connections::new();
+    // fds.push_from_fd(listener_fd);
+
+    // let mut clients: Vec<Client> = vec![];
+    // loop {
+    //     unsafe {
+    //         let _ = libc::poll(fds.as_mut_ptr(), fds.len() as u64, -1);
+    //         for (i, poll_fd) in fds.clone().iter().enumerate() {
+    //             let fd = poll_fd.fd;
+    //             match poll_fd.revents {
+    //                 0 => (),
+    //                 a => {
+    //                     if a & libc::POLLIN != 0 && a & libc::POLLRDHUP == 0 {
+    //                         if fd == listener_fd {
+    //                             add_client(&mut fds, &listener, &mut clients, &logger)?;
+    //                         } else if read_from_fd(fd, i, &mut clients, &logger)? {
+    //                             return Ok(());
+    //                         }
+    //                     }
+    //                     if a & libc::POLLRDHUP != 0
+    //                         || a & libc::POLLHUP != 0
+    //                         || a & libc::POLLERR != 0
+    //                     {
+    //                         eprintln!("{a}");
+    //                         let addr = clients
+    //                             .get(i - 1)
+    //                             .map(|client| client.get_addr())
+    //                             .unwrap_or_else(|| "Can't find address".to_string());
+
+    //                         let stream = clients.remove(i - 1);
+    //                         drop(stream);
+    //                         fds.remove(i);
+    //                         handle_revent_error(a, addr, &logger)?;
+    //                     }
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
 }

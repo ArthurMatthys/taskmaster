@@ -1,5 +1,5 @@
-mod program;
 mod error;
+mod program;
 
-pub use program::{Program, Programs};
 pub use error::{Error, Result};
+pub use program::{Program, Programs};

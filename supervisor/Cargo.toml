@@ -7,6 +7,6 @@ edition = "2021"
 
 [dependencies]
 libc = { workspace = true }
-daemonize = { path = "../daemonize"}
 serde_yaml = { workspace = true }
 serde = { workspace = true }
+# daemonize = { path = "../daemonize/" }

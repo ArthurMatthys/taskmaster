@@ -120,3 +120,9 @@ pub fn get_errno() -> Errno {
         .raw_os_error()
         .expect("Errno expected")
 }
+
+impl From<supervisor::Error> for Error {
+    fn from(e: supervisor::Error) -> Self {
+        Error::SupervisorError(e)
+    }
+}

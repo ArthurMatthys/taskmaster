@@ -7,10 +7,10 @@ edition = "2021"
 
 [dependencies]
 clap = { workspace = true }
-daemonize = {path = "../daemonize/"}
-libc = { workspace = true}
+daemonize = { path = "../daemonize/" }
+libc = { workspace = true }
 logger = { path = "../logger" }
 serde_yaml = { workspace = true }
 serde = { workspace = true }
-supervisor = {path = "../supervisor/"}
-signal-hook = { version = "0.3", features = ["iterator", "extended-siginfo"]}
+supervisor = { path = "../supervisor/" }
+signal-hook = { version = "0.3", features = ["iterator", "extended-siginfo"] }

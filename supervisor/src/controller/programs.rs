@@ -31,6 +31,33 @@ pub fn load_config(mut args: SplitWhitespace, old: &Programs) -> Result<Programs
 }
 
 impl Programs {
+    pub fn load_config(&self, mut args: SplitWhitespace) -> Result<Programs> {
+        match args.next() {
+            Some(filename) => {
+                let rdr = match File::open(filename) {
+                    Ok(file) => BufReader::new(file),
+                    Err(e) => return Err(Error::Read(format!("File error : {e}"))),
+                };
+                match serde_yaml::from_reader::<_, Programs>(rdr) {
+                    Ok(new_config) => {
+                        self.programs.iter().for_each(|(name, p)| {
+                            if !new_config.programs.contains_key(name) {
+                                p.kill();
+                            };
+                        });
+                        if args.next().is_some() {
+                            Err(Error::TooManyArguments)
+                        } else {
+                            Ok(new_config)
+                        }
+                    }
+                    Err(e) => return Err(Error::De(format!("Deserialise error : {e}"))),
+                }
+            }
+            None => Err(Error::NoFilenameProvided),
+        }
+    }
+
     pub fn status(&self) {
         self.programs.iter().for_each(|(key, p)| p.status(key));
     }

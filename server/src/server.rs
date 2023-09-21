@@ -167,21 +167,18 @@ pub fn server() -> Result<()> {
             }
         }
 
-        //// -> stop
-        //// -> status -> ok stop
-        ////
-
         for mut stream in &streams {
-            // stream
-            //     .set_read_timeout(Some(time::Duration::from_millis(100)))
-            //     .unwrap();
+            stream
+                .set_read_timeout(Some(time::Duration::from_millis(100)))
+                .unwrap();
             // let mut buf = vec![];
-            let mut buf = vec![];
-            let _ = match stream.read_to_end(&mut buf) {
+            let mut reader = BufReader::new(stream);
+            let mut buf = String::new();
+            let _ = match reader.read_line(&mut buf) {
                 Err(e) => match e.kind() {
                     io::ErrorKind::WouldBlock => {
                         println!("would have blocked");
-                        break;
+                        continue;
                     }
                     _ => panic!("Got an error: {}", e),
                 },
@@ -189,65 +186,14 @@ pub fn server() -> Result<()> {
                     println!("Received {:?}, {:?}", m, buf);
                     if m == 0 {
                         // doesn't reach here.
-                        break;
+                        continue;
                     }
                     m
                 }
             };
-
-            // let size = stream.read_to_string(&mut buf).unwrap();
-            // stream.write(b"Bonjour");
-            // let size = stream.set_read_timeout(&mut buf).unwrap();
-            // eprintln!("read {} : {:?}", size, buf);
         }
 
         thread::sleep(time::Duration::from_millis(300));
     }
     thread.join().expect("joining thread");
-    // for stream in listener.incoming() {
-    //     let Ok(stream) = stream else {
-    //         return Error
-    //     }
-    // }
-
-    // let listener_fd = listener.as_raw_fd();
-    // let mut fds = Connections::new();
-    // fds.push_from_fd(listener_fd);
-
-    // let mut clients: Vec<Client> = vec![];
-    // loop {
-    //     unsafe {
-    //         let _ = libc::poll(fds.as_mut_ptr(), fds.len() as u64, -1);
-    //         for (i, poll_fd) in fds.clone().iter().enumerate() {
-    //             let fd = poll_fd.fd;
-    //             match poll_fd.revents {
-    //                 0 => (),
-    //                 a => {
-    //                     if a & libc::POLLIN != 0 && a & libc::POLLRDHUP == 0 {
-    //                         if fd == listener_fd {
-    //                             add_client(&mut fds, &listener, &mut clients, &logger)?;
-    //                         } else if read_from_fd(fd, i, &mut clients, &logger)? {
-    //                             return Ok(());
-    //                         }
-    //                     }
-    //                     if a & libc::POLLRDHUP != 0
-    //                         || a & libc::POLLHUP != 0
-    //                         || a & libc::POLLERR != 0
-    //                     {
-    //                         eprintln!("{a}");
-    //                         let addr = clients
-    //                             .get(i - 1)
-    //                             .map(|client| client.get_addr())
-    //                             .unwrap_or_else(|| "Can't find address".to_string());
-
-    //                         let stream = clients.remove(i - 1);
-    //                         drop(stream);
-    //                         fds.remove(i);
-    //                         handle_revent_error(a, addr, &logger)?;
-    //                     }
-    //                 }
-    //             }
-    //         }
-    //     }
-    // }
 }

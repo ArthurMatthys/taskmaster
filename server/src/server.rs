@@ -1,4 +1,3 @@
-use crate::connections::Connections;
 use core::time;
 use daemonize::{get_err, log, Error, LogInfo, Result};
 use libc::{SIGCHLD, SIGKILL};
@@ -140,13 +139,16 @@ pub fn server() -> Result<()> {
         //handle_sig(); // -> sigup (reload conf) // -> le reste (kill programm)
         //check_child_status();
 
+        // read signals, from channels, with timeout of 100ms
+        // treat all signals at once
         loop {
             let v = rx.recv_timeout(time::Duration::from_millis(100));
             match v {
-                Ok(_) => eprintln!("received : {:?}", v),
+                Ok(_) => eprintln!("received : {:?}", v), // sigup et down to handle here
                 Err(RecvTimeoutError::Timeout) => break,
                 Err(e) => {
                     eprintln!("Unknown error : {:?}", e);
+                    // quit program with proper error management / clean state
                     break;
                 }
             }
@@ -157,7 +159,7 @@ pub fn server() -> Result<()> {
                 stream
                     .set_read_timeout(Some(time::Duration::from_millis(2000)))
                     .unwrap();
-                streams.push(stream);
+                streams.push(stream); // add to list, but need the cleanup too
                 eprintln!("Connection from {:?}", addr)
             }
             Err(e) => {
@@ -177,12 +179,14 @@ pub fn server() -> Result<()> {
             let _ = match reader.read_line(&mut buf) {
                 Err(e) => match e.kind() {
                     io::ErrorKind::WouldBlock => {
+                        // if timeout
                         println!("would have blocked");
                         continue;
                     }
                     _ => panic!("Got an error: {}", e),
                 },
                 Ok(m) => {
+                    // read a line
                     println!("Received {:?}, {:?}", m, buf);
                     if m == 0 {
                         // doesn't reach here.
@@ -192,6 +196,9 @@ pub fn server() -> Result<()> {
                 }
             };
         }
+
+        // check status of children
+        // check_child_status
 
         thread::sleep(time::Duration::from_millis(300));
     }

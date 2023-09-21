@@ -2,6 +2,7 @@ use std::{fs::File, io::BufReader, str::SplitWhitespace};
 
 use crate::model::{Error, Programs, Result};
 
+// a changer pour être methode de programme
 pub fn load_config(mut args: SplitWhitespace, old: &Programs) -> Result<Programs> {
     match args.next() {
         Some(filename) => {

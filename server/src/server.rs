@@ -9,7 +9,9 @@ use std::net::TcpListener;
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::sync::{mpsc, Arc};
-use std::{io, thread};
+use std::{env, io, thread};
+
+use supervisor::Programs;
 
 use crate::Clients;
 

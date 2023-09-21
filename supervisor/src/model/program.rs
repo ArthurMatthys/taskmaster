@@ -1,5 +1,4 @@
 use serde::Deserialize;
-use std::collections::HashMap;
 // use libc;
 
 #[derive(Debug, Deserialize)]
@@ -30,11 +29,6 @@ pub enum StopSignal {
     Exit,
     Usr1,
     Term,
-}
-
-#[derive(Debug, Deserialize, Default)]
-pub struct Programs {
-    pub programs: HashMap<String, Program>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -73,4 +67,7 @@ pub struct Program {
 
     pub stdout: Output,
     pub stderr: Output,
+
+    #[serde(skip)]
+    pub child: Vec<std::process::Child>,
 }

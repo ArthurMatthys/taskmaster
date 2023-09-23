@@ -1,6 +1,6 @@
-use std::{fmt::Display, fs, io::Write, path::PathBuf};
+use std::{fmt::Display, fs, io::Write};
 
-use crate::error::{Error, Result};
+use crate::error::Result;
 use chrono::offset::Local;
 
 const LOGFILE: &str = "/var/log/taskmaster/taskmaster.log";
@@ -37,16 +37,14 @@ where
     if !cfg!(debug_assertions) && info.is_debug() {
         return Ok(());
     }
-    fs::create_dir_all(LOGDIR).map_err(Error::CreateDir)?;
+    fs::create_dir_all(LOGDIR)?;
     let mut f = fs::OpenOptions::new()
         .create(true)
         .write(true)
         .append(true)
-        .open(LOGFILE)
-        .map_err(Error::LogOpen)?;
+        .open(LOGFILE)?;
 
     let now = Local::now().format("%d / %m / %Y - %H : %M : %S");
-    f.write(format!("[{now:}] - {info:5} : {msg}").as_bytes())
-        .map_err(Error::Log)?;
+    f.write(format!("[{now:}] - {info:5} : {msg}").as_bytes())?;
     Ok(())
 }

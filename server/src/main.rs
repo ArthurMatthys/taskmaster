@@ -1,6 +1,5 @@
-use daemonize::{log, Daemon, LogInfo, Result};
-
-mod connections;
+// use daemonize::{log, Daemon, LogInfo, Result};
+use daemonize::Result;
 
 mod server;
 use server::server;

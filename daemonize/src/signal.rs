@@ -1,9 +1,10 @@
 use std::{fs, process};
 
+use logger::log;
+
 use crate::{
     error::{get_err, Error, Result},
     file_handler::unlock,
-    logger::log,
     LogInfo,
 };
 

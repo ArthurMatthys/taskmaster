@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
-members = [ "daemonize", "server", "supervisor", "supervisor_ctl"]
+members = [ "daemonize", "server", "supervisor", "supervisor_ctl", "logger"]
+
 
 
 [workspace.dependencies]

@@ -6,6 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-libc = "0.2"
-serde_yaml = "0.8"
-serde = { version = "1.0", features = ["derive"] }
+libc = { workspace = true }
+daemonize = { path = "../daemonize"}
+serde_yaml = { workspace = true }
+serde = { workspace = true }

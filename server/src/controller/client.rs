@@ -1,4 +1,5 @@
 use daemonize::Result;
+use logger::{log, LogInfo};
 use std::{
     io::{self, BufRead, BufReader, BufWriter, Write},
     net::{SocketAddr, TcpStream},
@@ -15,9 +16,20 @@ const READ_DURATION: Duration = Duration::from_millis(100);
 impl Clients {
     pub(crate) fn add_client(&mut self, stream: TcpStream, addr: SocketAddr) -> Result<bool> {
         Ok(if self.clients.len() >= NBR_CLIENT_MAX {
+            log(
+                format!(
+                    "There can be at most {} clients connected\n",
+                    NBR_CLIENT_MAX
+                ),
+                LogInfo::Warn,
+            )?;
             false
         } else {
             let mut new_client = Client::new(stream, addr)?;
+            log(
+                format!("Connecting to new client with address {}\n", addr),
+                LogInfo::Info,
+            )?;
             new_client.print_prompt()?;
             self.clients.push(new_client);
             true
@@ -30,8 +42,6 @@ impl Clients {
     pub(crate) fn read_clients(&mut self) -> Result<bool> {
         let mut to_clear = vec![];
         for (i, client) in self.clients.iter_mut().enumerate() {
-            eprintln!("Reading client {:?}", i);
-
             match client.read_promt()? {
                 ClientResponse::Continue => (),
                 ClientResponse::Disconnected => to_clear.push(i),
@@ -40,7 +50,13 @@ impl Clients {
             client.print_prompt()?;
         }
         for i in to_clear.into_iter().rev() {
-            eprintln!("removed client");
+            log(
+                format!(
+                    "Disconnecting form client with address {:?}\n",
+                    self.clients[i].addr
+                ),
+                LogInfo::Info,
+            )?;
             self.clients.remove(i);
         }
         Ok(true)
@@ -75,7 +91,6 @@ impl Client {
     /// Display the promt of taskmaster when needed
     fn print_prompt(&mut self) -> Result<()> {
         if self.prompt_needed {
-            eprintln!("printing prompt");
             self.print(PROMPT.as_bytes())?;
             self.prompt_needed = false;
         }
@@ -101,7 +116,6 @@ impl Client {
                 _ => return Err(e.into()),
             },
             Ok(m) => {
-                println!("Received {:?}, {:?}", m, buf);
                 if m == 0 {
                     // doesn't reach here.
                     return Ok(ClientResponse::Disconnected);

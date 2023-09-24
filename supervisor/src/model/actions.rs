@@ -11,23 +11,19 @@ pub enum ParseActionError {
 impl Display for ParseActionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ParseActionError::NoCommandFound => write!(f, "\x1B[31mNo command found\x1B[0m\n"),
+            ParseActionError::NoCommandFound => writeln!(f, "\x1B[31mNo command found\x1B[0m"),
             ParseActionError::NoProgramsProvided(a) => {
-                write!(
-                    f,
-                    "\x1B[31mThe command {:?} need programs to run\x1B[0m\n",
-                    a
-                )
+                writeln!(f, "\x1B[31mThe command {:?} need programs to run\x1B[0m", a)
             }
             ParseActionError::ToManyArguments(a) => {
-                write!(
+                writeln!(
                     f,
-                    "\x1B[31mThe command {:?} doesn't need programs to run\x1B[0\n",
+                    "\x1B[31mThe command {:?} doesn't need programs to run\x1B[0",
                     a
                 )
             }
             ParseActionError::UnrecognizedAction(a) => {
-                write!(f, "\x1B[31mThe command {:?} is not recognized\x1B[0m\n", a)
+                writeln!(f, "\x1B[31mThe command {:?} is not recognized\x1B[0m", a)
             }
         }
     }

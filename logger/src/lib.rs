@@ -2,9 +2,6 @@ use std::{fmt::Display, fs, io::Write, path::PathBuf, sync::OnceLock};
 
 use chrono::offset::Local;
 
-const LOGFILE: &str = "/var/log/taskmaster/taskmaster.log";
-const LOGDIR: &str = "/var/log/taskmaster/";
-
 pub enum LogInfo {
     Debug,
     Error,
@@ -55,7 +52,7 @@ where
             .open(filename)?;
 
         let now = Local::now().format("%d / %m / %Y - %H : %M : %S");
-        f.write(format!("[{now:}] - {info:5} : {msg}").as_bytes())?;
+        f.write_all(format!("[{now:}] - {info:5} : {msg}").as_bytes())?;
         Ok(())
     } else {
         Err(std::io::Error::new(

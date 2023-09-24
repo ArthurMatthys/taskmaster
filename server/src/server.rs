@@ -38,7 +38,7 @@ pub fn server() -> Result<()> {
     let listener = TcpListener::bind(std::env::var("SERVER_ADDRESS")?)?;
     let (tx, rx): (Sender<i32>, Receiver<i32>) = mpsc::channel();
 
-    let thread = thread::spawn(|| register_signal_hook(tx));
+    let _ = thread::spawn(|| register_signal_hook(tx));
 
     listener.set_nonblocking(true)?;
     let mut clients = Clients::default();

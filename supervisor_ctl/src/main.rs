@@ -1,13 +1,9 @@
 mod model;
 mod supervisor_ctl;
 
-use clap::Parser;
-use model::Args;
-
-use crate::supervisor_ctl::supervisor;
-use supervisor::Result;
+use daemonize::Result;
+use supervisor_ctl::supervisor_ctl;
 
 fn main() -> Result<()> {
-    let args = Args::parse();
-    supervisor(args)
+    supervisor_ctl()
 }

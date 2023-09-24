@@ -7,7 +7,6 @@ pub enum Error {
     ChangeDir(Errno),
     CloseFd(Errno),
     DeleteLock(Errno),
-    DotEnv(dotenv::Error),
     Env(std::env::VarError),
     FileAlreadyLocked(Errno),
     Io(std::io::Error),
@@ -37,7 +36,6 @@ impl Display for Error {
             Error::ChangeDir(e) => write!(f, "Error changing directory : {e}"),
             Error::CloseFd(e) => write!(f, "Error closing fd : {e}"),
             Error::DeleteLock(e) => write!(f, "Error deleting lock file: {e}"),
-            Error::DotEnv(e) => write!(f, "Error getting .env file : {e}"),
             Error::Env(e) => Display::fmt(e, f),
             Error::InvalidFd { fd, expected } => {
                 write!(f, "Opening fd {fd}, it should be {expected}")

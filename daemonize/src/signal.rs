@@ -1,9 +1,10 @@
 use std::{fs, process};
 
+use logger::log;
+
 use crate::{
     error::{get_err, Error, Result},
     file_handler::unlock,
-    logger::log,
     LogInfo,
 };
 
@@ -12,7 +13,7 @@ use crate::{
 const NSIG: libc::c_int = 32;
 
 pub fn handle_sig(value: i32) {
-    if let Err(e) = fs::create_dir_all("/var/log/matt_daemon").map_err(Error::CreateDir) {
+    if let Err(e) = fs::create_dir_all("/var/log/matt_daemon") {
         eprintln!("Cannot create dir to log signal input : {e}");
         return;
     }

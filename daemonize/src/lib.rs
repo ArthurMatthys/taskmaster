@@ -1,16 +1,15 @@
 mod error;
 mod file_handler;
 mod fork;
-mod logger;
 mod signal;
 
 use file_handler::{lock, redirect_stream, unlock};
 use fork::{execute_fork, ForkResult};
 use libc::exit;
+use logger::{log, LogInfo};
 use std::path;
 
 pub use error::{get_err, get_errno, Error, Result};
-pub use logger::{log, LogInfo};
 use signal::set_sig_handlers;
 
 use crate::file_handler::close_fds;

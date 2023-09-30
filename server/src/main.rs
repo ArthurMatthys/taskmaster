@@ -1,27 +1,33 @@
-use daemonize::{log, Daemon, LogInfo, Result};
+// use daemonize::{log, Daemon, LogInfo, Result};
+use daemonize::Result;
 
-mod connections;
+mod controller;
+mod model;
+
+pub use controller::*;
+pub use model::*;
 
 mod server;
 use server::server;
 
 fn main() -> Result<()> {
-    let daemon = match Daemon::new(server) {
-        Ok(d) => d,
-        Err(e) => {
-            eprintln!("{e}");
-            log(format!("{e}\n"), LogInfo::Error)?;
-            return Err(e);
-        }
-    };
+    server()
+    // let daemon = match Daemon::new(server) {
+    //     Ok(d) => d,
+    //     Err(e) => {
+    //         eprintln!("{e}");
+    //         log(format!("{e}\n"), LogInfo::Error)?;
+    //         return Err(e);
+    //     }
+    // };
 
-    match daemon.start() {
-        Ok(_) => Ok(()),
-        Err(e) => {
-            if let Err(e) = log(format!("Error : {e}\n"), LogInfo::Error) {
-                eprintln!("Failed to log error in daemon : {e}");
-            }
-            Err(e)
-        }
-    }
+    // match daemon.start() {
+    //     Ok(_) => Ok(()),
+    //     Err(e) => {
+    //         if let Err(e) = log(format!("Error : {e}\n"), LogInfo::Error) {
+    //             eprintln!("Failed to log error in daemon : {e}");
+    //         }
+    //         Err(e)
+    //     }
+    // }
 }

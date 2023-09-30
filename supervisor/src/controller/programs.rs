@@ -2,6 +2,7 @@ use std::{fs::File, io::BufReader, str::SplitWhitespace};
 
 use crate::model::{Error, Programs, Result};
 
+// a changer pour être methode de programme
 pub fn load_config(mut args: SplitWhitespace, old: &Programs) -> Result<Programs> {
     match args.next() {
         Some(filename) => {
@@ -22,7 +23,7 @@ pub fn load_config(mut args: SplitWhitespace, old: &Programs) -> Result<Programs
                         Ok(new_config)
                     }
                 }
-                Err(e) => return Err(Error::De(format!("Deserialise error : {e}"))),
+                Err(e) => Err(Error::De(format!("Deserialise error : {e}"))),
             }
         }
         None => Err(Error::NoFilenameProvided),
@@ -34,7 +35,7 @@ impl Programs {
         self.programs.iter().for_each(|(key, p)| p.status(key));
     }
 
-    pub fn action(&self, action: &str, mut args: SplitWhitespace) -> () {
+    pub fn action(&self, action: &str, mut args: SplitWhitespace) {
         let usage = format!(
             "Error: {action} requires a process name
 {action} <name>            {action} a process

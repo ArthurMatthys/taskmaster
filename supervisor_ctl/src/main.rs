@@ -1,13 +1,12 @@
 mod model;
 mod supervisor_ctl;
 
-use clap::Parser;
-use model::Args;
-
-use supervisor::Result;
-use crate::supervisor_ctl::supervisor;
+use daemonize::{Error, Result};
+use supervisor_ctl::supervisor_ctl;
 
 fn main() -> Result<()> {
-    let args = Args::parse();
-    supervisor(args)
+    if let Err(Error::Io(e)) = supervisor_ctl() {
+        eprintln!("{}", e)
+    }
+    Ok(())
 }

@@ -7,6 +7,6 @@ edition = "2021"
 
 [dependencies]
 chrono = "0.4"
-dotenv = "0.14"
-libc = "0.2"
+logger = { path = "../logger"}
+libc = { workspace = true}
 tokio = "1"

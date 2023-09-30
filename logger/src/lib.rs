@@ -1,4 +1,5 @@
-use std::{fmt::Display, fs, io::Write, path::PathBuf, sync::OnceLock};
+use once_cell::sync::OnceCell;
+use std::{fmt::Display, fs, io::Write, path::PathBuf};
 
 use chrono::offset::Local;
 
@@ -26,10 +27,12 @@ impl LogInfo {
     }
 }
 
-static FILE: OnceLock<String> = OnceLock::new();
+static FILE: OnceCell<String> = OnceCell::new();
 
 fn log_file() -> &'static String {
-    FILE.get_or_init(|| std::env::var("TASKMASTER_LOGFILE").unwrap_or("taskmaster.log".to_string()))
+    FILE.get_or_init(|| {
+        std::env::var("TASKMASTER_LOGFILE").unwrap_or_else(|_| "taskmaster.log".to_string())
+    })
 }
 
 pub fn log<S>(msg: S, info: LogInfo) -> std::io::Result<()>

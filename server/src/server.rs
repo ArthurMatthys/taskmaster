@@ -35,7 +35,14 @@ fn register_signal_hook(sender: Sender<i32>) -> Result<()> {
 }
 
 pub fn server() -> Result<()> {
-    let listener = TcpListener::bind(std::env::var("SERVER_ADDRESS")?)?;
+    let listener = TcpListener::bind(std::env::var("SERVER_ADDRESS").unwrap_or_else(|_| {
+        logger::log(
+            "SERVER_ADDRESS environment variable is not set, using localhost:4242 default",
+            logger::LogInfo::Error,
+        )
+        .unwrap();
+        "127.0.0.1:4242".to_string()
+    }))?;
     let (tx, rx): (Sender<i32>, Receiver<i32>) = mpsc::channel();
 
     let _ = thread::spawn(|| register_signal_hook(tx));

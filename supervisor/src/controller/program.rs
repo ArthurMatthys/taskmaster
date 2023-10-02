@@ -1,61 +1,30 @@
 use crate::model::Program;
-// use daemonize::{log, LogInfo};
+// use crate::model::{Error, Programs, Result};
+// use logger::{log, LogInfo};
 
 impl Program {
-    pub fn kill(&mut self) {
-        // match &mut self.child {
-        //     Some(child) => {
-        //         child.kill().unwrap();
-        //     }
-        //     None => unreachable!(),
-        // }
-    }
 
-    fn start_one(&mut self, vec: &mut Vec<Program>) {
-        match std::process::Command::new(&self.cmd).spawn() {
-            Ok(child) => {
-                self.count = 0;
-                daemonize::log(format!("Program {} started", self.cmd), LogInfo::Info);
-                vec.push(child)
-            }
-            Err(e) => {
-                self.count += 1;
-                daemonize::log(
-                    format!("Error while starting program: {}", e),
-                    LogInfo::Error,
-                );
-                None
-            }
-        }
-    }
+    // pub fn reconcile_state(&mut self, new_program: Program) -> Result<()> {
+    //     let current_num_procs = self.children.len();
+    //     let new_num_procs = new_program.num_procs as usize;
 
-    pub fn start(&mut self) {
-        let mut vec = Vec::with_capacity(self.num_procs as usize);
+    //     if new_num_procs < current_num_procs {
+    //         // Stop excess processes
+    //         for _ in new_num_procs..current_num_procs {
+    //             self.stop_process()?;
+    //         }
+    //     } else if new_num_procs > current_num_procs {
+    //         // Start additional processes
+    //         for _ in current_num_procs..new_num_procs {
+    //             self.start_process()?;
+    //         }
+    //     }
 
-        for _ in 0..self.num_procs {
-            self.start_one(&mut vec)
-        }
-    }
+    //     // If the configuration has changed, restart all processes
+    //     if *self != new_program {
+    //         self.restart_all_processes()?;
+    //     }
 
-    pub fn stop(&self) {
-        todo!()
-    }
-
-    pub fn relaunch(&self) {
-        todo!()
-    }
-    pub fn status(&self, name: &str) {
-        println!("-------------");
-        println!("{name}:");
-        println!("-------------");
-    }
-
-    pub fn action_fn(&mut self, action: &str) {
-        match action {
-            "start" => self.start(),
-            "stop" => self.stop(),
-            "relaunch" => self.relaunch(),
-            _ => unimplemented!(),
-        }
-    }
+    //     Ok(())
+    // }
 }

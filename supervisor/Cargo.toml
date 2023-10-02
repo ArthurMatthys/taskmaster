@@ -9,4 +9,4 @@ edition = "2021"
 libc = { workspace = true }
 serde_yaml = { workspace = true }
 serde = { workspace = true }
-# daemonize = { path = "../daemonize/" }
+logger = { path = "../logger/" }

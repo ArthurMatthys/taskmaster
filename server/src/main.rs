@@ -2,9 +2,10 @@ mod controller;
 mod model;
 
 pub use controller::*;
-use daemonize::{log, LogInfo, Result};
+pub use daemonize::{Error, Result};
+// use logger::{log, LogInfo};
 pub use model::*;
-use supervisor::{Program, Programs};
+use supervisor::Programs;
 
 mod server;
 use server::server;

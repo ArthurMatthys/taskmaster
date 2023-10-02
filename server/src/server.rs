@@ -9,7 +9,7 @@ use std::net::TcpListener;
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::sync::{mpsc, Arc};
-use std::{env, io, thread};
+use std::{io, thread};
 
 use supervisor::Programs;
 
@@ -36,7 +36,7 @@ fn register_signal_hook(sender: Sender<i32>) -> Result<()> {
     Ok(())
 }
 
-pub fn server() -> Result<()> {
+pub fn server(programs: Programs) -> Result<()> {
     let listener = TcpListener::bind(std::env::var("SERVER_ADDRESS").unwrap_or_else(|_| {
         logger::log(
             "SERVER_ADDRESS environment variable is not set, using localhost:4242 default",

@@ -3,6 +3,7 @@ use crate::model::Program;
 // use logger::{log, LogInfo};
 
 impl Program {
+    // do not forget to wait a bit on status check, so that the changes get applied
 
     // pub fn reconcile_state(&mut self, new_program: Program) -> Result<()> {
     //     let current_num_procs = self.children.len();

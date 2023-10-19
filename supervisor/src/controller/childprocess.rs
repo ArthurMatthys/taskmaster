@@ -12,7 +12,7 @@ use libc::umask;
 use std::fs::File;
 use std::process::{Command, Stdio};
 
-use super::program;
+// use super::program;
 
 // FnOnce limits the amount of time a closure can be called
 // as we run it in a loop, it's always a new one
@@ -52,7 +52,7 @@ impl ChildProcess {
                     command.stdout(Stdio::from(file));
                 }
                 _ => {
-                    let log_dir = "logger";
+                    let log_dir = "log_dir";
                     let file_name = format!("{}_stdout_{}", program.name, process_number);
                     let log_path = Path::new(log_dir).join(file_name);
                     let io = match OpenOptions::new().append(true).create(true).open(&log_path) {
@@ -142,8 +142,6 @@ impl ChildProcess {
     pub fn kill_program(&mut self) {
         if let Some(child) = &mut self.child {
             let _ = child.kill();
-            // ensure state has been updated at the process level
-            // std::thread::sleep(std::time::Duration::from_millis(100));
         }
     }
 
@@ -188,7 +186,22 @@ impl ChildProcess {
                 }
             }
             ProgramState::Running => {
-                println!("Process is running");
+                self.exit_status = self.get_child_exit_status();
+                if self.exit_status.is_some() {
+                    if self.is_exit_status_in_config(config) {
+                        // exit with expected status
+                        self.state = ProgramState::Exited;
+                    } else if config.auto_restart == AutoRestart::Never {
+                        // cannot be restarted
+                        self.state = ProgramState::Pending;
+                    } else {
+                        // backoff
+                        self.kill_program();
+                        let _ = self.rerun_program(config, process_number);
+                        self.increment_start_retries();
+                        self.state = ProgramState::Backoff;
+                    }
+                }
             }
             ProgramState::Backoff => {
                 if elapsed_time < (config.start_secs as u64) {
@@ -226,9 +239,10 @@ impl ChildProcess {
             ProgramState::Killed => {
                 println!("Process was killed");
             }
-            _ => {
-                panic!("Unknown program state");
+            ProgramState::Pending => {
+                println!("Process was killed");
             }
+            ProgramState::Error => todo!(),
         }
     }
 
@@ -360,7 +374,7 @@ mod tests {
         };
 
         let mut child_process = ChildProcess::start(&program, 0).unwrap();
-        std::thread::sleep(std::time::Duration::from_secs(2));
+        std::thread::sleep(std::time::Duration::from_secs(1));
         child_process.check(&program, 0);
 
         assert_eq!(child_process.state, ProgramState::Running);
@@ -402,7 +416,7 @@ mod tests {
     fn test_check_starting_backoff() {
         let program = Program {
             name: "sleep_backoff".to_string(),
-            cmd: ("/bin/sleep".to_string(), vec!["1".to_string()]),
+            cmd: ("/bin/sleep".to_string(), vec!["2".to_string()]),
             num_procs: 1,
 
             auto_start: false,
@@ -440,7 +454,7 @@ mod tests {
     fn test_check_starting_pending() {
         let program = Program {
             name: "sleep_pending".to_string(),
-            cmd: ("/bin/sleep".to_string(), vec!["1".to_string()]),
+            cmd: ("/bin/sleep".to_string(), vec!["3".to_string()]),
             num_procs: 1,
 
             auto_start: false,

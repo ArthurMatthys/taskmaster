@@ -1,18 +1,14 @@
 use crate::model::{AutoRestart, ChildProcess, Output, Program, ProgramState};
 
-use crate::model::{Error, Programs, Result};
+use crate::model::Result;
 use logger::{log, LogInfo};
 use std::fs::OpenOptions;
 use std::path::Path;
 use std::time::Instant;
 
-// use crate::model::{Error, Programs, Result};
 use libc::umask;
-// use std::env;
 use std::fs::File;
 use std::process::{Command, Stdio};
-
-// use super::program;
 
 // FnOnce limits the amount of time a closure can be called
 // as we run it in a loop, it's always a new one
@@ -46,13 +42,18 @@ impl ChildProcess {
                 command.envs(env_vars);
             }
 
+            let log_dir = "log_dir";
             match &program.stdout {
                 Output::File(path) => {
+                    let path = Path::new(path);
+                    if let Some(dir) = path.parent() {
+                        std::fs::create_dir_all(dir)?;
+                    }
                     let file = File::create(path).unwrap();
                     command.stdout(Stdio::from(file));
                 }
                 _ => {
-                    let log_dir = "log_dir";
+                    std::fs::create_dir_all(&log_dir)?;
                     let file_name = format!("{}_stdout_{}", program.name, process_number);
                     let log_path = Path::new(log_dir).join(file_name);
                     let io = match OpenOptions::new().append(true).create(true).open(&log_path) {
@@ -75,12 +76,16 @@ impl ChildProcess {
 
             match &program.stderr {
                 Output::File(path) => {
+                    let path = Path::new(path);
+                    if let Some(dir) = path.parent() {
+                        std::fs::create_dir_all(dir)?;
+                    }
                     let file = File::create(path).unwrap();
                     command.stderr(Stdio::from(file));
                 }
                 _ => {
-                    let log_dir = "logger";
                     let file_name = format!("{}_stderr_{}", program.name, process_number);
+                    std::fs::create_dir_all(&log_dir)?; // Create the directory if it does not exist
                     let log_path = Path::new(log_dir).join(file_name);
                     let io = match OpenOptions::new().append(true).create(true).open(&log_path) {
                         Ok(file) => Stdio::from(file),
@@ -154,13 +159,16 @@ impl ChildProcess {
     }
 
     pub fn check(&mut self, config: &Program, process_number: u8) {
-        let elapsed_time = self.start_secs.map_or(0, |start_time| {
+        let elapsed_start_time = self.start_secs.map_or(0, |start_time| {
+            Instant::now().duration_since(start_time).as_secs()
+        });
+        let elapsed_stop_time = self.start_secs.map_or(0, |start_time| {
             Instant::now().duration_since(start_time).as_secs()
         });
 
         match &self.state {
             ProgramState::Starting => {
-                if elapsed_time < (config.start_secs as u64) {
+                if elapsed_start_time < (config.start_secs as u64) {
                     return;
                 }
 
@@ -204,7 +212,7 @@ impl ChildProcess {
                 }
             }
             ProgramState::Backoff => {
-                if elapsed_time < (config.start_secs as u64) {
+                if elapsed_start_time < (config.start_secs as u64) {
                     return;
                 }
 
@@ -225,40 +233,26 @@ impl ChildProcess {
                 }
             }
             ProgramState::Stopping => {
-                println!("Process is stopping");
+                self.exit_status = self.get_child_exit_status();
+                if self.exit_status.is_some() {
+                    self.state = ProgramState::Stopped;
+                } else {
+                    if elapsed_stop_time < (config.stop_time as u64) {
+                        return;
+                    }
+                    self.kill_program();
+                    self.state = ProgramState::Killed;
+                }
             }
-            ProgramState::Stopped => {
-                println!("Process is stopped");
-            }
-            ProgramState::Exited => {
-                println!("Process has exited");
-            }
-            ProgramState::Fatal => {
-                println!("Process has encountered a fatal error");
-            }
-            ProgramState::Killed => {
-                println!("Process was killed");
-            }
-            ProgramState::Pending => {
-                println!("Process was killed");
-            }
-            ProgramState::Error => todo!(),
+            // final states that cannot be changed:
+            // ProgramState::Exited
+            // ProgramState::Killed
+            // ProgramState::Stopped
+            // ProgramState::Fatal
+            // ProgramState::Pending
+            _ => {}
         }
     }
-
-    // pub fn stop(&mut self) -> Result<()> {
-    //     self.child.kill()?;
-    //     self.state = ProgramState::Stopped;
-    //     self.end_time = Some(Instant::now());
-    //     Ok(())
-    // }
-
-    // pub fn kill(&mut self) -> Result<()> {
-    //     self.child.kill()?;
-    //     self.state = ProgramState::Killed;
-    //     self.end_time = Some(Instant::now());
-    //     Ok(())
-    // }
 }
 
 #[cfg(test)]
@@ -273,7 +267,6 @@ mod tests {
     use crate::ChildProcess;
     use crate::StopSignal;
 
-    // use crate::model::Program::AutoRestart;
     use crate::ProgramState;
     use std::fs::OpenOptions;
     use std::io::Write;
@@ -486,5 +479,90 @@ mod tests {
         child_process.check(&program, 0);
 
         assert_eq!(child_process.state, ProgramState::Pending);
+    }
+
+    #[test]
+    fn test_check_backoff_fatal() {
+        let program = Program {
+            name: "sleep_fatal".to_string(),
+            cmd: ("/bin/sleep".to_string(), vec!["3".to_string()]),
+            num_procs: 1,
+
+            auto_start: false,
+            auto_restart: AutoRestart::Always,
+
+            exitcodes: vec![0],
+
+            start_retries: 3,
+            start_secs: 1,
+
+            stop_signal: StopSignal::Usr1,
+            stop_time: 1,
+            env: None,
+            working_dir: ".".to_string(),
+            umask: "0o022".to_string(),
+            stdout: Output::None,
+            stderr: Output::None,
+            children: vec![],
+        };
+
+        let mut child_process = ChildProcess::start(&program, 0).unwrap();
+        std::thread::sleep(std::time::Duration::from_secs(1));
+
+        use libc::{kill, SIGKILL};
+        let pid = child_process.child.as_ref().unwrap().id() as libc::pid_t;
+        let _ = unsafe { kill(pid, SIGKILL) };
+        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        // fakely put it in backoff mode
+        child_process.state = ProgramState::Backoff;
+        child_process.restart_count = 3;
+
+        child_process.check(&program, 0);
+
+        assert_eq!(child_process.state, ProgramState::Fatal);
+    }
+
+    #[test]
+    fn test_check_backoff_backoff() {
+        let program = Program {
+            name: "sleep_fatal".to_string(),
+            cmd: ("/bin/sleep".to_string(), vec!["3".to_string()]),
+            num_procs: 1,
+
+            auto_start: false,
+            auto_restart: AutoRestart::Always,
+
+            exitcodes: vec![0],
+
+            start_retries: 3,
+            start_secs: 1,
+
+            stop_signal: StopSignal::Usr1,
+            stop_time: 1,
+            env: None,
+            working_dir: ".".to_string(),
+            umask: "0o022".to_string(),
+            stdout: Output::None,
+            stderr: Output::None,
+            children: vec![],
+        };
+
+        let mut child_process = ChildProcess::start(&program, 0).unwrap();
+        std::thread::sleep(std::time::Duration::from_secs(1));
+
+        use libc::{kill, SIGKILL};
+        let pid = child_process.child.as_ref().unwrap().id() as libc::pid_t;
+        let _ = unsafe { kill(pid, SIGKILL) };
+        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        // fakely put it in backoff mode
+        child_process.state = ProgramState::Backoff;
+        child_process.restart_count = 2;
+
+        child_process.check(&program, 0);
+
+        assert_eq!(child_process.state, ProgramState::Backoff);
+        assert_eq!(child_process.restart_count, 3);
     }
 }

@@ -4,7 +4,7 @@ use serde::{Deserialize, Deserializer};
 use std::collections::HashMap;
 // use libc;
 
-#[derive(Debug, Deserialize, PartialEq)]
+#[derive(Debug, Deserialize, PartialEq, Clone)]
 #[serde(rename_all = "lowercase")]
 pub enum AutoRestart {
     Always,
@@ -12,7 +12,7 @@ pub enum AutoRestart {
     Unexpected,
 }
 
-#[derive(Debug, Deserialize, PartialEq)]
+#[derive(Debug, Deserialize, PartialEq, Clone)]
 pub enum Output {
     File(String),
     Fd(u16),
@@ -20,7 +20,7 @@ pub enum Output {
 }
 
 // TODO : Change it or choose enum from libc ?
-#[derive(Debug, Deserialize, PartialEq)]
+#[derive(Debug, Deserialize, PartialEq, Clone)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum StopSignal {
     Exit,
@@ -56,7 +56,7 @@ where
     Ok((cmd, args))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct Program {
     pub name: String,
 

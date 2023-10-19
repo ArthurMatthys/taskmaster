@@ -1,8 +1,10 @@
 use std::process::Child;
+use std::sync::Arc;
+use std::sync::Mutex;
 use std::time::Instant;
 
 // https://docs.red-dove.com/supervisor/events.html#process-state-event-type
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum ProgramState {
     // trying to start the process
     Starting,
@@ -31,9 +33,9 @@ pub enum ProgramState {
     Error,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ChildProcess {
-    pub child: Option<Child>,
+    pub child: Option<Arc<Mutex<Child>>>,
     pub state: ProgramState,
     pub exit_status: Option<i32>,
     pub start_secs: Option<Instant>,

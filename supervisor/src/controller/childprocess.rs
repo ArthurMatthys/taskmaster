@@ -4,6 +4,8 @@ use crate::model::Result;
 use logger::{log, LogInfo};
 use std::fs::OpenOptions;
 use std::path::Path;
+use std::sync::Arc;
+use std::sync::Mutex;
 use std::time::Instant;
 
 use libc::umask;
@@ -61,9 +63,9 @@ impl ChildProcess {
                         Err(e) => {
                             _ = log(
                                 format!(
-                                    "Failed to open log file: {}, at path {}",
+                                    "Failed to open log file: {}, at path {}\n",
                                     e,
-                                    log_path.to_str().unwrap()
+                                    log_path.to_str().unwrap_or_default()
                                 ),
                                 LogInfo::Error,
                             );
@@ -92,9 +94,9 @@ impl ChildProcess {
                         Err(e) => {
                             _ = log(
                                 format!(
-                                    "Failed to open log file: {}, at path {}",
+                                    "Failed to open log file: {}, at path {}\n",
                                     e,
-                                    log_path.to_str().unwrap()
+                                    log_path.to_str().unwrap_or_default()
                                 ),
                                 LogInfo::Error,
                             );
@@ -109,14 +111,14 @@ impl ChildProcess {
 
             _ = log(
                 format!(
-                    "Started process: {}, number {}",
+                    "Started process: {}, number {}\n",
                     program.name, process_number
                 ),
                 LogInfo::Info,
             );
 
             Ok(ChildProcess {
-                child: Some(child),
+                child: Some(Arc::new(Mutex::new(child))),
                 state: ProgramState::Starting,
                 exit_status: None,
                 start_secs: Some(Instant::now()),
@@ -127,11 +129,11 @@ impl ChildProcess {
     }
 
     pub fn get_child_exit_status(&mut self) -> Option<i32> {
-        match self.child.as_mut()?.try_wait() {
-            Ok(Some(status)) => Some(status.code().unwrap_or(1)),
+        match self.child.as_mut()?.lock().unwrap().try_wait() {
+            Ok(Some(status)) => Some(status.code().unwrap_or(-1)),
             Ok(None) => None,
             Err(e) => {
-                eprintln!("Failed to wait on child: {}", e);
+                _ = log(format!("Failed to wait on child: {}\n", e), LogInfo::Error);
                 Some(-1) // internal exit status that doesn't exist
             }
         }
@@ -146,7 +148,7 @@ impl ChildProcess {
 
     pub fn kill_program(&mut self) {
         if let Some(child) = &mut self.child {
-            let _ = child.kill();
+            let _ = child.lock().unwrap().kill();
         }
     }
 
@@ -158,7 +160,7 @@ impl ChildProcess {
         self.restart_count += 1;
     }
 
-    pub fn check(&mut self, config: &Program, process_number: u8) {
+    pub fn check(&mut self, config: &Program, process_number: u8) -> Result<()> {
         let elapsed_start_time = self.start_secs.map_or(0, |start_time| {
             Instant::now().duration_since(start_time).as_secs()
         });
@@ -169,7 +171,7 @@ impl ChildProcess {
         match &self.state {
             ProgramState::Starting => {
                 if elapsed_start_time < (config.start_secs as u64) {
-                    return;
+                    return Ok(());
                 }
 
                 self.exit_status = self.get_child_exit_status();
@@ -183,7 +185,10 @@ impl ChildProcess {
                     } else {
                         // backoff
                         self.kill_program();
-                        let _ = self.rerun_program(config, process_number);
+                        if let Err(e) = self.rerun_program(config, process_number) {
+                            log(format!("Failed to rerun program: {}", e), LogInfo::Error);
+                            return Err(e);
+                        }
                         self.increment_start_retries();
                         self.state = ProgramState::Backoff;
                     }
@@ -205,7 +210,10 @@ impl ChildProcess {
                     } else {
                         // backoff
                         self.kill_program();
-                        let _ = self.rerun_program(config, process_number);
+                        if let Err(e) = self.rerun_program(config, process_number) {
+                            log(format!("Failed to rerun program: {}", e), LogInfo::Error);
+                            return Err(e);
+                        }
                         self.increment_start_retries();
                         self.state = ProgramState::Backoff;
                     }
@@ -213,7 +221,7 @@ impl ChildProcess {
             }
             ProgramState::Backoff => {
                 if elapsed_start_time < (config.start_secs as u64) {
-                    return;
+                    return Ok(());
                 }
 
                 self.exit_status = self.get_child_exit_status();
@@ -223,7 +231,10 @@ impl ChildProcess {
                         self.state = ProgramState::Fatal;
                     } else {
                         self.kill_program();
-                        let _ = self.rerun_program(config, process_number);
+                        if let Err(e) = self.rerun_program(config, process_number) {
+                            log(format!("Failed to rerun program: {}", e), LogInfo::Error);
+                            return Err(e);
+                        }
                         self.increment_start_retries();
                         self.state = ProgramState::Backoff;
                     }
@@ -238,7 +249,7 @@ impl ChildProcess {
                     self.state = ProgramState::Stopped;
                 } else {
                     if elapsed_stop_time < (config.stop_time as u64) {
-                        return;
+                        return Ok(());
                     }
                     self.kill_program();
                     self.state = ProgramState::Killed;
@@ -252,6 +263,7 @@ impl ChildProcess {
             // ProgramState::Pending
             _ => {}
         }
+        Ok(())
     }
 }
 
@@ -434,7 +446,7 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_secs(1));
 
         use libc::{kill, SIGKILL};
-        let pid = child_process.child.as_ref().unwrap().id() as libc::pid_t;
+        let pid = child_process.child.as_ref().unwrap().lock().unwrap().id() as libc::pid_t;
         let _ = unsafe { kill(pid, SIGKILL) };
         std::thread::sleep(std::time::Duration::from_millis(100));
 
@@ -472,7 +484,7 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_secs(1));
 
         use libc::{kill, SIGKILL};
-        let pid = child_process.child.as_ref().unwrap().id() as libc::pid_t;
+        let pid = child_process.child.as_ref().unwrap().lock().unwrap().id() as libc::pid_t;
         let _ = unsafe { kill(pid, SIGKILL) };
         std::thread::sleep(std::time::Duration::from_millis(100));
 
@@ -510,7 +522,7 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_secs(1));
 
         use libc::{kill, SIGKILL};
-        let pid = child_process.child.as_ref().unwrap().id() as libc::pid_t;
+        let pid = child_process.child.as_ref().unwrap().lock().unwrap().id() as libc::pid_t;
         let _ = unsafe { kill(pid, SIGKILL) };
         std::thread::sleep(std::time::Duration::from_millis(100));
 
@@ -552,7 +564,7 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_secs(1));
 
         use libc::{kill, SIGKILL};
-        let pid = child_process.child.as_ref().unwrap().id() as libc::pid_t;
+        let pid = child_process.child.as_ref().unwrap().lock().unwrap().id() as libc::pid_t;
         let _ = unsafe { kill(pid, SIGKILL) };
         std::thread::sleep(std::time::Duration::from_millis(100));
 

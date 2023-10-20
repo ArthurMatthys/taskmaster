@@ -10,6 +10,7 @@ pub enum Error {
     TooManyArguments,
     ConfigFileNotFound(String),
     IoError { message: String },
+    WaitError(String),
 }
 
 impl Display for Error {
@@ -21,6 +22,7 @@ impl Display for Error {
             Error::TooManyArguments => write!(f, "Too many arguments"),
             Error::ConfigFileNotFound(e) => write!(f, "Config file not found : {e}"),
             Error::IoError { message } => write!(f, "IO Error : {message}"),
+            Error::WaitError(e) => write!(f, "Error waiting for child status : {e}"),
         }
     }
 }

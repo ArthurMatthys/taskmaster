@@ -10,12 +10,13 @@ use std::time::Instant;
 
 use libc::umask;
 use std::fs::File;
+use std::os::unix::process::ExitStatusExt;
 use std::process::{Command, Stdio};
 
 // FnOnce limits the amount of time a closure can be called
 // as we run it in a loop, it's always a new one
 // not limiting then
-pub fn with_umask<F: FnOnce() -> Result<ChildProcess>>(mask: u16, f: F) -> Result<ChildProcess> {
+pub fn with_umask<F: FnOnce() -> Result<ChildProcess>>(mask: u32, f: F) -> Result<ChildProcess> {
     unsafe {
         let old_mask = umask(mask);
         let result = f();
@@ -26,7 +27,7 @@ pub fn with_umask<F: FnOnce() -> Result<ChildProcess>>(mask: u16, f: F) -> Resul
 
 impl ChildProcess {
     pub fn start(program: &Program, process_number: u8) -> Result<ChildProcess> {
-        let umask = u16::from_str_radix(&program.umask, 8).unwrap_or(0o022);
+        let umask = u32::from_str_radix(&program.umask, 8).unwrap_or(0o022);
 
         with_umask(umask, || {
             let mut command = Command::new(&program.cmd.0);
@@ -130,17 +131,16 @@ impl ChildProcess {
         match self.child.as_mut() {
             Some(child) => {
                 match child.lock() {
-                    Ok(lock) => match lock.try_wait() {
-                        Ok(Some(status)) => {
-                            Ok(status.code().map_or(ChildExitStatus::WaitError, |status| {
-                                ChildExitStatus::Exited(status)
-                            }))
-                        }
+                    Ok(mut child) => match child.try_wait() {
+                        Ok(Some(status)) => Ok(status.code().map_or_else(
+                            || ChildExitStatus::Exited(status.stopped_signal().unwrap_or_default()),
+                            ChildExitStatus::Exited,
+                        )),
                         Ok(None) => Ok(ChildExitStatus::Running),
                         Err(e) => {
                             let _ =
                                 log(format!("Failed to wait on child: {}\n", e), LogInfo::Error);
-                            Ok(ChildExitStatus::WaitError) // internal exit status that doesn't exist
+                            Ok(ChildExitStatus::WaitError(e.to_string())) // internal exit status that doesn't exist
                         }
                     },
                     Err(_) => {
@@ -195,50 +195,41 @@ impl ChildProcess {
                 }
 
                 // je sais que je suis en child.None
-
-                // let status = self.get_child_exit_status();
-                // match status {
-                //     Ok(status) => self.exit_status = status,
-                //     Err(e) => {
-                //         let _ = log(
-                //             format!("Failed to get child exit status: {}", e),
-                //             LogInfo::Error,
-                //         );
-
-                //         self.kill_program();
-                //         if let Err(e) = self.rerun_program(config, process_number) {
-                //             let _ = log(format!("Failed to rerun program: {}", e), LogInfo::Error);
-                //             return Err(e);
-                //         }
-                //         self.increment_start_retries();
-                //     }
-                // }
-
-                if self.exit_status.is_some() {
-                    if self.is_exit_status_in_config(config) {
-                        // exit with expected status
-                        self.state = ProgramState::Exited;
-                    } else if config.auto_restart == AutoRestart::Never {
-                        // cannot be restarted
-                        self.state = ProgramState::Pending;
-                    } else {
-                        // backoff
-                        self.kill_program();
-                        if let Err(e) = self.rerun_program(config, process_number) {
-                            let _ = log(format!("Failed to rerun program: {}", e), LogInfo::Error);
-                            return Err(e);
+                self.exit_status = self.get_child_exit_status()?;
+                match self.exit_status {
+                    ChildExitStatus::Exited(code) => {
+                        if self.is_exit_status_in_config(config) {
+                            // exit with expected status
+                            self.state = ProgramState::Exited;
+                        } else if config.auto_restart == AutoRestart::Never {
+                            if self.restart_count < config.start_retries {
+                                self.state = ProgramState::Pending;
+                            } else {
+                                self.state = ProgramState::Fatal;
+                            }
+                            // cannot be restarted
+                        } else {
+                            // backoff
+                            self.kill_program();
+                            if let Err(e) = self.rerun_program(config, process_number) {
+                                let _ =
+                                    log(format!("Failed to rerun program: {}", e), LogInfo::Error);
+                                return Err(e);
+                            }
+                            self.increment_start_retries();
+                            self.state = ProgramState::Backoff;
                         }
-                        self.increment_start_retries();
-                        self.state = ProgramState::Backoff;
                     }
-                } else {
-                    // running
-                    self.restart_count = 0;
-                    self.state = ProgramState::Running;
+                    ChildExitStatus::Running => {
+                        self.restart_count = 0;
+                        self.state = ProgramState::Running;
+                    }
+                    ChildExitStatus::NonExistent => unreachable!(),
+                    ChildExitStatus::WaitError(e) => return Err(Error::WaitError(e)),
                 }
             }
             ProgramState::Running => {
-                self.exit_status = self.get_child_exit_status();
+                self.exit_status = self.get_child_exit_status()?;
                 if self.exit_status.is_some() {
                     if self.is_exit_status_in_config(config) {
                         // exit with expected status

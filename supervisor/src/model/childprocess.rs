@@ -8,7 +8,7 @@ pub enum ChildExitStatus {
     Exited(i32),
     Running,
     NonExistent,
-    WaitError,
+    WaitError(String),
 }
 
 // https://docs.red-dove.com/supervisor/events.html#process-state-event-type

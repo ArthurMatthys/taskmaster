@@ -57,6 +57,7 @@ where
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Program {
+    #[serde(skip)]
     pub name: String,
 
     // command to execute and its arguments

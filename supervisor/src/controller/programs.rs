@@ -26,7 +26,10 @@ impl Programs {
                     Err(e) => return Err(Error::Read(format!("File error : {}", e))),
                 };
                 match serde_yaml::from_reader::<_, Programs>(rdr) {
-                    Ok(new_config) => {
+                    Ok(mut new_config) => {
+                        new_config.programs.iter_mut().for_each(|(name, program)| {
+                            program.name = name.clone();
+                        });
                         if args.next().is_some() {
                             Err(Error::TooManyArguments)
                         } else {
@@ -58,11 +61,14 @@ impl Programs {
     }
 
     pub fn status(&mut self) -> String {
-        self.programs
-            .iter_mut()
-            .map(|(_, p)| p.status())
-            .collect::<Vec<_>>()
-            .join(" // ")
+        format!(
+            "{}\n",
+            self.programs
+                .iter_mut()
+                .map(|(_, p)| p.status())
+                .collect::<Vec<_>>()
+                .join(" // ")
+        )
     }
 
     pub fn stop(&mut self, programs: &[String]) -> Result<()> {
@@ -91,22 +97,22 @@ impl Programs {
         Ok(match action {
             Action::Start(programs) => {
                 self.start(&programs)?;
-                "Programs started".to_string()
+                "Programs started\n".to_string()
             }
             Action::Stop(programs) => {
                 self.stop(&programs)?;
-                "Programs stopped".to_string()
+                "Programs stopped\n".to_string()
             }
             Action::Restart(programs) => {
                 self.restart(&programs)?;
-                "Programs restarted".to_string()
+                "Programs restarted\n".to_string()
                 // self.relaunch(),
             }
             Action::Status => self.status(),
             // reload the config file
             Action::Reload => {
                 self.programs = self.update_config()?.programs;
-                "Reload done".to_string()
+                "Reload done\n".to_string()
             }
             // clean stop the job control and exit
             // Handled in the server

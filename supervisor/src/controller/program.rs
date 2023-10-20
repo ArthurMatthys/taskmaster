@@ -3,6 +3,7 @@ use std::time::Instant;
 use logger::{log, LogInfo};
 
 use crate::model::ChildProcess;
+use crate::model::Origin;
 use crate::model::Program;
 use crate::model::ProgramState;
 use crate::model::Result;
@@ -70,8 +71,8 @@ impl Program {
         }
     }
 
-    pub fn start_process(&mut self) -> Result<()> {
-        if !self.auto_start {
+    pub fn start_process(&mut self, origin: Origin) -> Result<()> {
+        if origin == Origin::Config && !self.auto_start {
             return Ok(());
         }
 
@@ -129,7 +130,7 @@ impl Program {
             }
 
             self.children.clear();
-            self.start_process()?;
+            self.start_process(Origin::Config)?;
         // if the number of processes is less, we need to kill the extra processes
         } else if self.num_procs > new_program.num_procs {
             for _ in new_num_procs..current_num_procs {
@@ -139,7 +140,7 @@ impl Program {
             }
         // if the number of processes is more, we need to start the extra processes
         } else if self.num_procs < new_program.num_procs {
-            if let Err(e) = self.start_process() {
+            if let Err(e) = self.start_process(Origin::Config) {
                 let _ = log(format!("Failed to start program: {}", e), LogInfo::Error);
             }
         }

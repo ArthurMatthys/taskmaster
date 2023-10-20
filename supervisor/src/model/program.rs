@@ -2,7 +2,12 @@ use crate::ChildProcess;
 use serde::{Deserialize, Deserializer};
 
 use std::collections::HashMap;
-// use libc;
+
+#[derive(PartialEq)]
+pub enum Origin {
+    CLI,
+    Config,
+}
 
 #[derive(Debug, Deserialize, PartialEq, Clone)]
 #[serde(rename_all = "lowercase")]

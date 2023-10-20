@@ -6,7 +6,6 @@ use std::{
 pub struct Client {
     pub(crate) stream: TcpStream,
     pub(crate) addr: SocketAddr,
-    pub(crate) prompt_needed: bool,
     pub(crate) reader: BufReader<TcpStream>,
 }
 

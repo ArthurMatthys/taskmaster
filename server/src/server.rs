@@ -11,6 +11,8 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::sync::{mpsc, Arc};
 use std::{io, thread};
 
+use supervisor::Programs;
+
 use crate::Clients;
 
 /// Send any signal received into a channel for the main loop to deal with.
@@ -34,7 +36,7 @@ fn register_signal_hook(sender: Sender<i32>) -> Result<()> {
     Ok(())
 }
 
-pub fn server() -> Result<()> {
+pub fn server(programs: Programs) -> Result<()> {
     let listener = TcpListener::bind(std::env::var("SERVER_ADDRESS").unwrap_or_else(|_| {
         logger::log(
             "SERVER_ADDRESS environment variable is not set, using localhost:4242 default",
@@ -84,6 +86,7 @@ pub fn server() -> Result<()> {
         }
 
         if !clients.read_clients()? {
+            eprintln!("Exiting");
             break;
         };
 

@@ -1,131 +1,90 @@
+use crate::Action;
 use std::{fs::File, io::BufReader, str::SplitWhitespace};
 
 use crate::model::{Error, Programs, Result};
 
-// a changer pour être methode de programme
-pub fn load_config(mut args: SplitWhitespace, old: &Programs) -> Result<Programs> {
-    match args.next() {
-        Some(filename) => {
-            let rdr = match File::open(filename) {
-                Ok(file) => BufReader::new(file),
-                Err(e) => return Err(Error::Read(format!("File error : {e}"))),
-            };
-            match serde_yaml::from_reader::<_, Programs>(rdr) {
-                Ok(new_config) => {
-                    old.programs.iter().for_each(|(name, p)| {
-                        if !new_config.programs.contains_key(name) {
-                            p.kill();
-                        };
-                    });
-                    if args.next().is_some() {
-                        Err(Error::TooManyArguments)
-                    } else {
-                        Ok(new_config)
-                    }
-                }
-                Err(e) => Err(Error::De(format!("Deserialise error : {e}"))),
-            }
-        }
-        None => Err(Error::NoFilenameProvided),
-    }
-}
-
 impl Programs {
-    pub fn status(&self) {
-        self.programs.iter().for_each(|(key, p)| p.status(key));
-    }
-
-    pub fn action(&self, action: &str, mut args: SplitWhitespace) {
-        let usage = format!(
-            "Error: {action} requires a process name
-{action} <name>            {action} a process
-{action} <name> <name>     {action} multiple processes
-{action} all               {action} all processes"
-        );
-
-        let mut i = 0;
-        loop {
-            let arg = args.next();
-
-            match arg {
-                None => {
-                    if i == 0 {
-                        eprintln!("{usage}");
+    // loads a new configuration from a file, returns it. Doesn't change the current state
+    pub fn load_config(&self, mut args: SplitWhitespace) -> Result<Programs> {
+        match args.next() {
+            Some(filename) => {
+                let rdr = match File::open(filename) {
+                    Ok(file) => BufReader::new(file),
+                    Err(e) => return Err(Error::Read(format!("File error : {}", e))),
+                };
+                match serde_yaml::from_reader::<_, Programs>(rdr) {
+                    Ok(new_config) => {
+                        if args.next().is_some() {
+                            Err(Error::TooManyArguments)
+                        } else {
+                            Ok(new_config)
+                        }
                     }
-                    return;
-                }
-                Some("all") => self.programs.iter().for_each(|(_, p)| p.action_fn(action)),
-                Some(name) => {
-                    let mut target = self.programs.iter().filter(|(key, _)| *key == name);
-                    if let Some((_, p)) = target.next() {
-                        p.action_fn(action);
-                    } else {
-                        eprintln!("{name}: ERROR (no such process)");
-                    }
+                    Err(e) => return Err(Error::De(format!("Deserialise error : {}", e))),
                 }
             }
-            i += 1;
+            None => Err(Error::NoFilenameProvided),
         }
     }
 
-    // pub fn start(&self, mut args: SplitWhitespace) -> () {
-    //     let usage = "Error: start requires a process name
-    // start <name>            Start a process
-    // start <name> <name>     Start multiple processes
-    // start all               Start all processes";
-
-    //     let mut i = 0;
-    //     loop {
-    //         let arg = args.next();
-
-    //         match arg {
-    //             None => {
-    //                 if i == 0 {
-    //                     eprintln!("{usage}");
-    //                 }
-    //                 return;
-    //             }
-    //             Some("all") => self.programs.iter().for_each(|(_, p)| p.start()),
-    //             Some(name) => {
-    //                 let mut target = self.programs.iter().filter(|(key, _)| *key == name);
-    //                 if let Some((_, p)) = target.next() {
-    //                     p.start();
-    //                 } else {
-    //                     eprintln!("{name}: ERROR (no such process)");
-    //                 }
-    //             }
+    // pub fn reconcile_state(&mut self, new_config: Programs) -> Result<()> {
+    //     // Iterate over the new configuration
+    //     for (name, new_program) in new_config.programs {
+    //         // If the program is not in the current state, start it
+    //         if let Some(current_program) = self.programs.get_mut(&name) {
+    //             current_program.reconcile_state(new_program)?;
+    //         } else {
+    //             // If the program is not in the current state, start it
+    //             self.action_fn(Action::Start(vec![new_program.name]));
     //         }
-    //         i += 1;
     //     }
-    // }
-    // pub fn stop(&self, mut args: SplitWhitespace) -> () {
-    //     let usage = "Error: stop requires a process name
-    // stop <name>            Stop a process
-    // stop <name> <name>     Stop multiple processes
-    // stop all               Stop all processes";
 
-    //     let mut i = 0;
-    //     loop {
-    //         let arg = args.next();
-
-    //         match arg {
-    //             None => {
-    //                 if i == 0 {
-    //                     eprintln!("{usage}");
-    //                 }
-    //                 return;
-    //             }
-    //             Some("all") => self.programs.iter().for_each(|(_, p)| p.stop()),
-    //             Some(name) => {
-    //                 let mut target = self.programs.iter().filter(|(key, _)| *key == name);
-    //                 if let Some((_, p)) = target.next() {
-    //                     p.stop();
-    //                 } else {
-    //                     eprintln!("{name}: ERROR (no such process)");
-    //                 }
-    //             }
+    //     // Iterate over the current state
+    //     for (name, current_program) in &mut self.programs {
+    //         // If the program is not in the new configuration, stop it
+    //         if !new_config.programs.contains_key(name) {
+    //             self.action_fn(Action::Stop(vec![name.to_string()]));
     //         }
-    //         i += 1;
     //     }
+
+    //     Ok(())
     // }
+
+    pub fn action_fn(&mut self, action: Action) {
+        match action {
+            Action::Start(programs) => {
+                for program in programs.iter() {
+                    _ = program;
+                }
+            }
+            Action::Stop(programs) => {
+                for program in programs.iter() {
+                    _ = program;
+                }
+                unimplemented!();
+                // self.stop()
+            }
+            Action::Restart(programs) => {
+                for program in programs.iter() {
+                    _ = program;
+                }
+                unimplemented!();
+                // self.relaunch(),
+            }
+            Action::Status => {
+                unimplemented!();
+                // self.status(),
+            }
+            // reload the config file
+            Action::Reload => {
+                unimplemented!();
+                // self.reload(),
+            }
+            // clean stop the job control and exit
+            Action::Quit => {
+                unimplemented!();
+                // self.quit(),
+            }
+        }
+    }
 }

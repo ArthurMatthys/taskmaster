@@ -27,6 +27,8 @@ pub enum Error {
     SignalSetting(Errno),
     Sysconf(Errno),
     Unlock(Errno),
+    SupervisorError(String),
+    ConfigEnvVarNotFound(std::env::VarError),
 }
 
 impl Display for Error {
@@ -59,6 +61,8 @@ impl Display for Error {
             Error::SignalSetting(e) => write!(f, "Error setting signal handler : {e}"),
             Error::Sysconf(e) => write!(f, "Error getting value of sysconf : {e}"),
             Error::Unlock(e) => write!(f, "Error unlocking lock file : {e}"),
+            Error::SupervisorError(e) => write!(f, "Supervisor error : {e}"),
+            Error::ConfigEnvVarNotFound(e) => write!(f, "Config env var not found : {e}"),
         }
     }
 }
@@ -119,4 +123,10 @@ pub fn get_errno() -> Errno {
     io::Error::last_os_error()
         .raw_os_error()
         .expect("Errno expected")
+}
+
+impl From<supervisor::Error> for Error {
+    fn from(e: supervisor::Error) -> Self {
+        Error::SupervisorError(e.to_string())
+    }
 }

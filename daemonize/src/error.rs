@@ -29,6 +29,7 @@ pub enum Error {
     Unlock(Errno),
     SupervisorError(String),
     ConfigEnvVarNotFound(std::env::VarError),
+    Repl(reedline_repl_rs::Error),
 }
 
 impl Display for Error {
@@ -63,6 +64,7 @@ impl Display for Error {
             Error::Unlock(e) => write!(f, "Error unlocking lock file : {e}"),
             Error::SupervisorError(e) => write!(f, "Supervisor error : {e}"),
             Error::ConfigEnvVarNotFound(e) => write!(f, "Config env var not found : {e}"),
+            Error::Repl(e) => write!(f, "Repl error : {e}"),
         }
     }
 }
@@ -122,11 +124,16 @@ impl From<std::env::VarError> for Error {
 pub fn get_errno() -> Errno {
     io::Error::last_os_error()
         .raw_os_error()
-        .expect("Errno expected")
+        .unwrap_or_default()
 }
 
 impl From<supervisor::Error> for Error {
     fn from(e: supervisor::Error) -> Self {
         Error::SupervisorError(e.to_string())
+    }
+}
+impl From<reedline_repl_rs::Error> for Error {
+    fn from(e: reedline_repl_rs::Error) -> Self {
+        Error::Repl(e)
     }
 }

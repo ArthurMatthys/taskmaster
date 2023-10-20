@@ -50,7 +50,10 @@ impl Clients {
             log(
                 format!(
                     "Disconnecting form client with address {:?}\n",
-                    self.clients[i].addr
+                    self.clients
+                        .get(i)
+                        .map(|c| c.addr.to_string())
+                        .unwrap_or_default()
                 ),
                 LogInfo::Info,
             )?;
@@ -113,7 +116,7 @@ impl Client {
                     }
                 };
 
-                self.print(format!("action received : {:?}\n", action).as_bytes());
+                self.print(format!("action received : {:?}\n", action).as_bytes())?;
                 if action == Action::Quit {
                     return Ok(ClientResponse::Exit);
                 }

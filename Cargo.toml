@@ -7,5 +7,6 @@ members = [ "daemonize", "server", "supervisor", "supervisor_ctl", "logger"]
 [workspace.dependencies]
 clap = { version = "3.1.18", features = ["derive"] }
 libc = "0.2"
+reedline-repl-rs = "1.0.7"
 serde_yaml = "0.8"
 serde = { version = "1.0", features = ["derive"] }

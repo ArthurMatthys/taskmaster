@@ -6,6 +6,7 @@ use crate::model::ChildProcess;
 use crate::model::Program;
 use crate::model::ProgramState;
 use crate::model::Result;
+use crate::ChildExitStatus;
 
 // use logger::{log, LogInfo};
 
@@ -82,7 +83,7 @@ impl Program {
                     self.children.push(ChildProcess {
                         child: None,
                         state: ProgramState::Backoff,
-                        exit_status: None,
+                        exit_status: ChildExitStatus::NonExistent,
                         start_secs: Some(Instant::now()),
                         end_time: None,
                         restart_count: 0,

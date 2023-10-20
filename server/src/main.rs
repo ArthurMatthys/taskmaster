@@ -4,10 +4,7 @@ mod model;
 pub use controller::*;
 pub use daemonize::{Error, Result};
 // use logger::{log, LogInfo};
-pub use daemonize::{Error, Result};
-// use logger::{log, LogInfo};
 pub use model::*;
-use supervisor::Programs;
 use supervisor::Programs;
 
 mod server;
@@ -22,6 +19,6 @@ fn main() -> Result<()> {
     let initial_programs = Programs::default();
     match initial_programs.load_config(config_file_path.split_whitespace()) {
         Ok(programs) => server(programs),
-        Err(e) => return Err(supervisor::Error::ConfigFileNotFound(e.to_string()).into()),
+        Err(e) => Err(supervisor::Error::ConfigFileNotFound(e.to_string()).into()),
     }
 }

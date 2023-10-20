@@ -39,7 +39,8 @@ where
     D: Deserializer<'de>,
 {
     let s: String = Deserialize::deserialize(deserializer)?;
-    match u16::from_str_radix(&s[2..], 8) {
+    let slice = s.get(2..).unwrap_or_default();
+    match u16::from_str_radix(slice, 8) {
         Ok(_) => Ok(s),
         Err(_) => Err(serde::de::Error::custom("Invalid octal format")),
     }

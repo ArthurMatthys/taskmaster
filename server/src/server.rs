@@ -36,15 +36,19 @@ fn register_signal_hook(sender: Sender<i32>) -> Result<()> {
     Ok(())
 }
 
-pub fn server(programs: Programs) -> Result<()> {
-    let listener = TcpListener::bind(std::env::var("SERVER_ADDRESS").unwrap_or_else(|_| {
-        logger::log(
-            "SERVER_ADDRESS environment variable is not set, using localhost:4242 default",
-            logger::LogInfo::Error,
-        )
-        .unwrap();
-        "127.0.0.1:4242".to_string()
-    }))?;
+pub fn server(_programs: Programs) -> Result<()> {
+    let addr = match std::env::var("SERVER_ADDRESS") {
+        Ok(addr) => addr,
+        Err(_) => {
+            logger::log(
+                "SERVER_ADDRESS environment variable is not set, using localhost:4242 default",
+                logger::LogInfo::Error,
+            )?;
+            "127.0.0.1:4242".to_string()
+        }
+    };
+
+    let listener = TcpListener::bind(addr)?;
     let (tx, rx): (Sender<i32>, Receiver<i32>) = mpsc::channel();
 
     let _ = thread::spawn(|| register_signal_hook(tx));

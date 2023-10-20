@@ -48,30 +48,36 @@ impl Programs {
             .join(" // ")
     }
 
-    pub fn stop(&mut self, programs: Vec<String>) -> String {
+    pub fn stop(&mut self, programs: &[String]) -> Result<()> {
+        self.programs
+            .iter_mut()
+            .filter(|(name, _)| programs.contains(name))
+            .try_for_each(|(_, p)| p.stop_processes())?;
+        Ok(())
+    }
+
+    pub fn start(&mut self, programs: &[String]) -> String {
         todo!();
     }
 
-    pub fn start(&mut self, programs: Vec<String>) -> String {
-        todo!();
-    }
-
-    pub fn restart(&mut self, programs: Vec<String>) -> String {
-        todo!();
+    pub fn restart(&mut self, programs: &Vec<String>) -> Result<()> {
+        self.stop(programs)?;
+        self.start(programs);
+        Ok(())
     }
 
     pub fn handle_action(&mut self, action: Action) -> Result<String> {
         Ok(match action {
             Action::Start(programs) => {
-                self.start(programs);
+                self.start(&programs);
                 "Programs started".to_string()
             }
             Action::Stop(programs) => {
-                self.stop(programs);
+                self.stop(&programs)?;
                 "Programs stopped".to_string()
             }
             Action::Restart(programs) => {
-                self.restart(programs);
+                self.restart(&programs)?;
                 "Programs restarted".to_string()
                 // self.relaunch(),
             }

@@ -101,10 +101,11 @@ impl Program {
         self.children.clear();
     }
 
-    pub fn stop_processes(&mut self) {
-        // self.children
-        //     .iter_mut()
-        //     .for_each(|p| p.stop(self.stop_signal as libc::c_int))
+    pub fn stop_processes(&mut self) -> Result<()> {
+        let stop_signal = self.stop_signal.clone() as u8;
+        self.children
+            .iter_mut()
+            .try_for_each(|p| p.stop(stop_signal))
     }
 
     pub fn update_program(&mut self, new_program: &Program) -> Result<()> {

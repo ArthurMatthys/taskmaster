@@ -126,10 +126,18 @@ impl ChildProcess {
         }
     }
 
-    pub fn stop(&mut self, sig: libc::c_int) {
+    pub fn stop(&mut self, sig: u8) -> Result<()> {
         self.state = ProgramState::Stopping;
-        let pid = self.child.as_ref().unwrap().lock().unwrap().id() as libc::pid_t;
-        let _ = unsafe { kill(pid, sig) };
+        if let Some(child) = self.child.as_ref() {
+            let pid = child
+                .lock()
+                .map_err(|e| Error::IoError {
+                    message: e.to_string(),
+                })?
+                .id();
+            let _ = unsafe { kill(pid as libc::pid_t, sig as libc::c_int) };
+        }
+        Ok(())
     }
 
     pub fn rerun_program(&mut self, program: &Program, process_number: u8) -> Result<ChildProcess> {

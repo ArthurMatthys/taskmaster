@@ -36,7 +36,8 @@ fn register_signal_hook(sender: Sender<i32>) -> Result<()> {
     Ok(())
 }
 
-pub fn server(programs: &mut Programs) -> Result<()> {
+pub fn server() -> Result<()> {
+    let mut programs = Programs::new()?;
     let addr = match std::env::var("SERVER_ADDRESS") {
         Ok(addr) => addr,
         Err(_) => {
@@ -72,7 +73,9 @@ pub fn server(programs: &mut Programs) -> Result<()> {
                     programs.update_config()?
                     , // sigup et down to handle here
                 Ok(sig) => 
-                    logger::log(format!("Received signal {} on server", sig), logger::LogInfo::Info)?,
+                    {
+                        logger::log(format!("Received signal {} on server", sig), logger::LogInfo::Info)?;
+                    break},
                 
                 Err(RecvTimeoutError::Timeout) => break,
                 Err(e) => {
@@ -93,7 +96,7 @@ pub fn server(programs: &mut Programs) -> Result<()> {
             }
         }
 
-        if !clients.read_clients(programs)? {
+        if !clients.read_clients(&mut programs)? {
             eprintln!("Exiting");
             break;
         };

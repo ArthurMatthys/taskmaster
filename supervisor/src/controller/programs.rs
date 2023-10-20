@@ -1,11 +1,16 @@
 use crate::Action;
-use std::{fs::File, io::BufReader, str::SplitWhitespace};
+use std::{fs::File, io::BufReader};
 
 use crate::model::{Error, Programs, Result};
 
 impl Programs {
     // loads a new configuration from a file, returns it. Doesn't change the current state
-    pub fn load_config(&self, mut args: SplitWhitespace) -> Result<Programs> {
+    pub fn new() -> Result<Programs> {
+        let path = match std::env::var("TASKMASTER_CONFIG_FILE_PATH") {
+            Ok(path) => path,
+            Err(e) => return Err(Error::ConfigEnvVarNotFound(e)),
+        };
+        let mut args = path.split_whitespace();
         match args.next() {
             Some(filename) => {
                 let rdr = match File::open(filename) {
@@ -27,64 +32,64 @@ impl Programs {
         }
     }
 
-    // pub fn reconcile_state(&mut self, new_config: Programs) -> Result<()> {
-    //     // Iterate over the new configuration
-    //     for (name, new_program) in new_config.programs {
-    //         // If the program is not in the current state, start it
-    //         if let Some(current_program) = self.programs.get_mut(&name) {
-    //             current_program.reconcile_state(new_program)?;
-    //         } else {
-    //             // If the program is not in the current state, start it
-    //             self.action_fn(Action::Start(vec![new_program.name]));
-    //         }
-    //     }
+    pub fn check(&mut self) -> Result<()> {
+        self.programs.iter_mut().try_for_each(|(_, p)| p.check())
+    }
 
-    //     // Iterate over the current state
-    //     for (name, current_program) in &mut self.programs {
-    //         // If the program is not in the new configuration, stop it
-    //         if !new_config.programs.contains_key(name) {
-    //             self.action_fn(Action::Stop(vec![name.to_string()]));
-    //         }
-    //     }
+    pub fn update_config(&mut self) -> Result<()> {
+        todo!();
+    }
 
-    //     Ok(())
-    // }
+    pub fn status(&mut self) -> String {
+        self.programs
+            .iter_mut()
+            .map(|(_, p)| p.status())
+            .collect::<Vec<_>>()
+            .join(" // ")
+    }
 
-    pub fn action_fn(&mut self, action: Action) {
-        match action {
+    pub fn stop(&mut self, programs: Vec<String>) -> String {
+        todo!();
+    }
+
+    pub fn start(&mut self, programs: Vec<String>) -> String {
+        todo!();
+    }
+
+    pub fn restart(&mut self, programs: Vec<String>) -> String {
+        todo!();
+    }
+
+    pub fn handle_action(&mut self, action: Action) -> Result<String> {
+        Ok(match action {
             Action::Start(programs) => {
-                for program in programs.iter() {
-                    _ = program;
-                }
+                self.start(programs);
+                "Programs started".to_string()
             }
             Action::Stop(programs) => {
-                for program in programs.iter() {
-                    _ = program;
-                }
-                unimplemented!();
-                // self.stop()
+                self.stop(programs);
+                "Programs stopped".to_string()
             }
             Action::Restart(programs) => {
-                for program in programs.iter() {
-                    _ = program;
-                }
-                unimplemented!();
+                self.restart(programs);
+                "Programs restarted".to_string()
                 // self.relaunch(),
             }
             Action::Status => {
-                unimplemented!();
+                self.status()
                 // self.status(),
             }
             // reload the config file
             Action::Reload => {
-                unimplemented!();
+                self.update_config()?;
+                "Reload done".to_string()
                 // self.reload(),
             }
             // clean stop the job control and exit
+            // Handled in the server
             Action::Quit => {
-                unimplemented!();
-                // self.quit(),
+                unreachable!();
             }
-        }
+        })
     }
 }

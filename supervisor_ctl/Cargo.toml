@@ -13,5 +13,4 @@ logger = { path= "../logger/" }
 reedline-repl-rs = { workspace = true }
 serde_yaml = { workspace = true }
 serde = { workspace = true }
-server = { path="../server" }
 supervisor = { path="../supervisor" }

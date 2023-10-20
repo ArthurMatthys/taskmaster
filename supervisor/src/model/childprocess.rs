@@ -41,6 +41,24 @@ pub enum ProgramState {
     Error,
 }
 
+impl ToString for ProgramState {
+    fn to_string(&self) -> String {
+        match self {
+            ProgramState::Starting => "starting",
+            ProgramState::Running => "running",
+            ProgramState::Backoff => "backoff",
+            ProgramState::Stopping => "stopping",
+            ProgramState::Stopped => "stopped",
+            ProgramState::Exited => "exited",
+            ProgramState::Fatal => "fatal",
+            ProgramState::Killed => "killed",
+            ProgramState::Pending => "pending",
+            ProgramState::Error => "error",
+        }
+        .to_string()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ChildProcess {
     pub child: Option<Arc<Mutex<Child>>>,

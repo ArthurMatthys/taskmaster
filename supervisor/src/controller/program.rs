@@ -7,6 +7,7 @@ use crate::model::Program;
 use crate::model::ProgramState;
 use crate::model::Result;
 use crate::ChildExitStatus;
+use crate::Error;
 
 // use logger::{log, LogInfo};
 
@@ -17,11 +18,11 @@ impl Program {
         for (index, child_process) in self.children.iter_mut().enumerate() {
             match child_process.check(&self_clone, index as u8) {
                 Ok(_) => continue,
-                Err(e) => {
-                    let _ = log(
-                        format!("Failed to check program: {} with error {}\n", self.name, e),
-                        LogInfo::Error,
-                    );
+                Err(Error::WaitError(e)) => {
+                    return Err(Error::WaitError(e));
+                }
+                Err(_e) => {
+                    continue;
                 }
             }
         }
@@ -91,8 +92,18 @@ impl Program {
                 }
             }
         }
-
         Ok(())
+    }
+
+    pub fn kill_processes(&mut self) {
+        self.children.iter_mut().for_each(|c| c.kill_program());
+        self.children.clear();
+    }
+
+    pub fn stop_processes(&mut self) {
+        // self.children
+        //     .iter_mut()
+        //     .for_each(|p| p.stop(self.stop_signal as libc::c_int))
     }
 
     pub fn update_program(&mut self, new_program: &Program) -> Result<()> {
@@ -142,5 +153,17 @@ impl Program {
         }
 
         Ok(())
+    }
+
+    pub fn status(&mut self) -> String {
+        format!(
+            "{:?} : {}",
+            self.name,
+            if let Some(s) = self.children.first().map(|c| c.state.clone()) {
+                s.to_string()
+            } else {
+                "Inactive program".to_string()
+            }
+        )
     }
 }

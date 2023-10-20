@@ -28,7 +28,6 @@ pub enum Error {
     Sysconf(Errno),
     Unlock(Errno),
     SupervisorError(String),
-    ConfigEnvVarNotFound(std::env::VarError),
     Repl(reedline_repl_rs::Error),
 }
 
@@ -63,7 +62,6 @@ impl Display for Error {
             Error::Sysconf(e) => write!(f, "Error getting value of sysconf : {e}"),
             Error::Unlock(e) => write!(f, "Error unlocking lock file : {e}"),
             Error::SupervisorError(e) => write!(f, "Supervisor error : {e}"),
-            Error::ConfigEnvVarNotFound(e) => write!(f, "Config env var not found : {e}"),
             Error::Repl(e) => write!(f, "Repl error : {e}"),
         }
     }

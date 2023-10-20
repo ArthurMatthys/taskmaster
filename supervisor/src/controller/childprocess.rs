@@ -1,13 +1,13 @@
-use crate::model::{AutoRestart, ChildExitStatus, ChildProcess, Output, Program, ProgramState};
+use crate::model::{AutoRestart, ChildExitStatus, ChildProcess, Program, ProgramState};
 
 use crate::model::{Error, Result};
 use logger::{log, LogInfo};
-use std::fs::OpenOptions;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Instant;
 
+use libc::kill;
 use libc::umask;
 use std::fs::File;
 use std::os::unix::process::ExitStatusExt;
@@ -42,68 +42,21 @@ impl ChildProcess {
                 command.envs(env_vars);
             }
 
-            let log_dir = "log_dir";
-            match &program.stdout {
-                Output::File(path) => {
-                    let path = Path::new(path);
-                    if let Some(dir) = path.parent() {
-                        std::fs::create_dir_all(dir)?;
-                    }
-                    let file = File::create(path)?;
-                    command.stdout(Stdio::from(file));
-                }
-                _ => {
-                    std::fs::create_dir_all(log_dir)?;
-                    let file_name = format!("{}_stdout_{}", program.name, process_number);
-                    let log_path = Path::new(log_dir).join(file_name);
-                    let io = match OpenOptions::new().append(true).create(true).open(&log_path) {
-                        Ok(file) => Stdio::from(file),
-                        Err(e) => {
-                            _ = log(
-                                format!(
-                                    "Failed to open log file: {}, at path {}\n",
-                                    e,
-                                    log_path.to_str().unwrap_or_default()
-                                ),
-                                LogInfo::Error,
-                            );
-                            Stdio::null()
-                        }
-                    };
-                    command.stdout(io);
-                }
+            let out_path = &program.stdout;
+            let path = Path::new(&out_path);
+            if let Some(dir) = path.parent() {
+                std::fs::create_dir_all(dir)?;
             }
+            let file = File::create(path)?;
+            command.stdout(Stdio::from(file));
 
-            match &program.stderr {
-                Output::File(path) => {
-                    let path = Path::new(path);
-                    if let Some(dir) = path.parent() {
-                        std::fs::create_dir_all(dir)?;
-                    }
-                    let file = File::create(path)?;
-                    command.stderr(Stdio::from(file));
-                }
-                _ => {
-                    let file_name = format!("{}_stderr_{}", program.name, process_number);
-                    std::fs::create_dir_all(log_dir)?;
-                    let log_path = Path::new(log_dir).join(file_name);
-                    let io = match OpenOptions::new().append(true).create(true).open(&log_path) {
-                        Ok(file) => Stdio::from(file),
-                        Err(e) => {
-                            _ = log(
-                                format!(
-                                    "Failed to open log file: {}, at path {}\n",
-                                    e,
-                                    log_path.to_str().unwrap_or_default()
-                                ),
-                                LogInfo::Error,
-                            );
-                            Stdio::null()
-                        }
-                    };
-                    command.stderr(io);
-                }
+            let err_path = &program.stderr;
+            let path = Path::new(&err_path);
+            if let Some(dir) = path.parent() {
+                std::fs::create_dir_all(dir)?;
             }
+            let file = File::create(path)?;
+            command.stderr(Stdio::from(file));
 
             let child = command.spawn()?;
 
@@ -173,6 +126,12 @@ impl ChildProcess {
         }
     }
 
+    pub fn stop(&mut self, sig: libc::c_int) {
+        self.state = ProgramState::Stopping;
+        let pid = self.child.as_ref().unwrap().lock().unwrap().id() as libc::pid_t;
+        let _ = unsafe { kill(pid, sig) };
+    }
+
     pub fn rerun_program(&mut self, program: &Program, process_number: u8) -> Result<ChildProcess> {
         let restart_count = self.restart_count;
         let updated_child = ChildProcess::start(program, process_number);
@@ -191,7 +150,6 @@ impl ChildProcess {
 
         match &self.state {
             ProgramState::Starting => {
-                // je sais que je suis en child.None
                 self.exit_status = self.get_child_exit_status()?;
                 match &self.exit_status {
                     ChildExitStatus::Exited(_) => {
@@ -269,20 +227,21 @@ impl ChildProcess {
                 self.exit_status = self.get_child_exit_status()?;
                 match &self.exit_status {
                     ChildExitStatus::Exited(_) => {
-                        if self.is_exit_status_in_config(config) {
-                            self.state = ProgramState::Exited;
-                        } else if self.restart_count >= config.start_retries {
+                        if !self.is_exit_status_in_config(config) {
                             self.kill_program();
-                            self.state = ProgramState::Fatal;
-                        } else {
-                            self.kill_program();
-                            if let Err(e) = self.rerun_program(config, process_number) {
-                                let _ =
-                                    log(format!("Failed to rerun program: {}", e), LogInfo::Error);
-                                return Err(e);
+                            if self.restart_count >= config.start_retries {
+                                self.state = ProgramState::Fatal;
+                            } else {
+                                if let Err(e) = self.rerun_program(config, process_number) {
+                                    let _ = log(
+                                        format!("Failed to rerun program: {}", e),
+                                        LogInfo::Error,
+                                    );
+                                    return Err(e);
+                                }
+                                self.increment_start_retries();
+                                self.state = ProgramState::Backoff;
                             }
-                            self.increment_start_retries();
-                            self.state = ProgramState::Backoff;
                         }
                         Ok(())
                     }
@@ -443,8 +402,8 @@ mod tests {
             env: None,
             working_dir: ".".to_string(),
             umask: "0o022".to_string(),
-            stdout: Output::None,
-            stderr: Output::None,
+            stdout: "abc".to_string(),
+            stderr: "abc".to_string(),
             children: vec![],
         };
 
@@ -476,8 +435,8 @@ mod tests {
             env: None,
             working_dir: ".".to_string(),
             umask: "0o022".to_string(),
-            stdout: Output::None,
-            stderr: Output::None,
+            stdout: "abc".to_string(),
+            stderr: "abc".to_string(),
             children: vec![],
         };
 
@@ -509,8 +468,8 @@ mod tests {
             env: None,
             working_dir: ".".to_string(),
             umask: "0o022".to_string(),
-            stdout: Output::None,
-            stderr: Output::None,
+            stdout: "abc".to_string(),
+            stderr: "abc".to_string(),
             children: vec![],
         };
 
@@ -548,8 +507,8 @@ mod tests {
             env: None,
             working_dir: ".".to_string(),
             umask: "0o022".to_string(),
-            stdout: Output::None,
-            stderr: Output::None,
+            stdout: "abc".to_string(),
+            stderr: "abc".to_string(),
             children: vec![],
         };
 
@@ -587,8 +546,8 @@ mod tests {
             env: None,
             working_dir: ".".to_string(),
             umask: "0o022".to_string(),
-            stdout: Output::None,
-            stderr: Output::None,
+            stdout: "abc".to_string(),
+            stderr: "abc".to_string(),
             children: vec![],
         };
 
@@ -630,15 +589,14 @@ mod tests {
             env: None,
             working_dir: ".".to_string(),
             umask: "0o022".to_string(),
-            stdout: Output::None,
-            stderr: Output::None,
+            stdout: "abc".to_string(),
+            stderr: "abc".to_string(),
             children: vec![],
         };
 
         let mut child_process = ChildProcess::start(&program, 0).unwrap();
         std::thread::sleep(std::time::Duration::from_secs(1));
 
-        use libc::{kill, SIGKILL};
         let pid = child_process.child.as_ref().unwrap().lock().unwrap().id() as libc::pid_t;
         let _ = unsafe { kill(pid, SIGKILL) };
         std::thread::sleep(std::time::Duration::from_millis(100));

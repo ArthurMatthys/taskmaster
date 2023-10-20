@@ -1,6 +1,6 @@
 use core::time;
 use daemonize::Result;
-use libc::SIGCHLD;
+use libc::{SIGCHLD, SIGHUP};
 use signal_hook::consts::{FORBIDDEN, TERM_SIGNALS};
 use signal_hook::flag;
 use signal_hook::iterator::exfiltrator::WithOrigin;
@@ -36,7 +36,7 @@ fn register_signal_hook(sender: Sender<i32>) -> Result<()> {
     Ok(())
 }
 
-pub fn server(_programs: Programs) -> Result<()> {
+pub fn server(programs: &mut Programs) -> Result<()> {
     let addr = match std::env::var("SERVER_ADDRESS") {
         Ok(addr) => addr,
         Err(_) => {
@@ -68,11 +68,15 @@ pub fn server(_programs: Programs) -> Result<()> {
         loop {
             let v = rx.recv_timeout(time::Duration::from_millis(100));
             match v {
-                Ok(_) => eprintln!("received : {:?}", v), // sigup et down to handle here
+                Ok(SIGHUP) => 
+                    programs.update_config()?
+                    , // sigup et down to handle here
+                Ok(sig) => 
+                    logger::log(format!("Received signal {} on server", sig), logger::LogInfo::Info)?,
+                
                 Err(RecvTimeoutError::Timeout) => break,
                 Err(e) => {
-                    eprintln!("Unknown error : {:?}", e);
-                    // quit program with proper error management / clean state
+                    logger::log(format!("Signal handling error : {:?}", e), logger::LogInfo::Error)?;
                     break;
                 }
             }
@@ -89,13 +93,14 @@ pub fn server(_programs: Programs) -> Result<()> {
             }
         }
 
-        if !clients.read_clients()? {
+        if !clients.read_clients(programs)? {
             eprintln!("Exiting");
             break;
         };
 
         // check status of children
         // check_child_status
+        programs.check()?;
 
         thread::sleep(time::Duration::from_millis(300));
     }

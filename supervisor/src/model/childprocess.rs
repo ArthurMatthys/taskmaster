@@ -3,6 +3,14 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Instant;
 
+#[derive(Debug, Clone)]
+pub enum ChildExitStatus {
+    Exited(i32),
+    Running,
+    NonExistent,
+    WaitError,
+}
+
 // https://docs.red-dove.com/supervisor/events.html#process-state-event-type
 #[derive(Debug, PartialEq, Clone)]
 pub enum ProgramState {
@@ -37,7 +45,7 @@ pub enum ProgramState {
 pub struct ChildProcess {
     pub child: Option<Arc<Mutex<Child>>>,
     pub state: ProgramState,
-    pub exit_status: Option<i32>,
+    pub exit_status: ChildExitStatus,
     pub start_secs: Option<Instant>,
     pub end_time: Option<Instant>,
     pub restart_count: u8,

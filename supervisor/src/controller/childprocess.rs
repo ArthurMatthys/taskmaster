@@ -1,4 +1,4 @@
-use crate::model::{AutoRestart, ChildProcess, Output, Program, ProgramState};
+use crate::model::{AutoRestart, ChildExitStatus, ChildProcess, Output, Program, ProgramState};
 
 use crate::model::{Error, Result};
 use logger::{log, LogInfo};
@@ -117,7 +117,7 @@ impl ChildProcess {
             Ok(ChildProcess {
                 child: Some(Arc::new(Mutex::new(child))),
                 state: ProgramState::Starting,
-                exit_status: None,
+                exit_status: ChildExitStatus::Running,
                 start_secs: Some(Instant::now()),
                 end_time: None, // killed, fatal, stopped, exited -- state that cannot be changed
                 restart_count: 0,
@@ -126,17 +126,21 @@ impl ChildProcess {
     }
 
     // lost in state transition between None that has no update and none where started didn't work
-    pub fn get_child_exit_status(&mut self) -> Result<Option<i32>> {
+    pub fn get_child_exit_status(&mut self) -> Result<ChildExitStatus> {
         match self.child.as_mut() {
             Some(child) => {
                 match child.lock() {
                     Ok(lock) => match lock.try_wait() {
-                        Ok(Some(status)) => Ok(Some(status.code().unwrap_or(-1))),
-                        Ok(None) => Ok(None),
+                        Ok(Some(status)) => {
+                            Ok(status.code().map_or(ChildExitStatus::WaitError, |status| {
+                                ChildExitStatus::Exited(status)
+                            }))
+                        }
+                        Ok(None) => Ok(ChildExitStatus::Running),
                         Err(e) => {
                             let _ =
                                 log(format!("Failed to wait on child: {}\n", e), LogInfo::Error);
-                            Ok(Some(-1)) // internal exit status that doesn't exist
+                            Ok(ChildExitStatus::WaitError) // internal exit status that doesn't exist
                         }
                     },
                     Err(_) => {
@@ -147,14 +151,14 @@ impl ChildProcess {
                     }
                 }
             }
-            None => Ok(None),
+            None => Ok(ChildExitStatus::NonExistent),
         }
     }
 
     pub fn is_exit_status_in_config(&self, config: &Program) -> bool {
         match self.exit_status {
-            Some(status) => (status >= 0) && config.exitcodes.contains(&(status as u8)),
-            None => false,
+            ChildExitStatus::Exited(status) => config.exitcodes.contains(&(status as u8)),
+            _ => false,
         }
     }
 
@@ -185,27 +189,30 @@ impl ChildProcess {
 
         match &self.state {
             ProgramState::Starting => {
+                // TODO: fix problem ?
                 if elapsed_start_time < (config.start_secs as u64) {
                     return Ok(());
                 }
 
-                let status = self.get_child_exit_status();
-                match status {
-                    Ok(status) => self.exit_status = status,
-                    Err(e) => {
-                        let _ = log(
-                            format!("Failed to get child exit status: {}", e),
-                            LogInfo::Error,
-                        );
+                // je sais que je suis en child.None
 
-                        self.kill_program();
-                        if let Err(e) = self.rerun_program(config, process_number) {
-                            let _ = log(format!("Failed to rerun program: {}", e), LogInfo::Error);
-                            return Err(e);
-                        }
-                        self.increment_start_retries();
-                    }
-                }
+                // let status = self.get_child_exit_status();
+                // match status {
+                //     Ok(status) => self.exit_status = status,
+                //     Err(e) => {
+                //         let _ = log(
+                //             format!("Failed to get child exit status: {}", e),
+                //             LogInfo::Error,
+                //         );
+
+                //         self.kill_program();
+                //         if let Err(e) = self.rerun_program(config, process_number) {
+                //             let _ = log(format!("Failed to rerun program: {}", e), LogInfo::Error);
+                //             return Err(e);
+                //         }
+                //         self.increment_start_retries();
+                //     }
+                // }
 
                 if self.exit_status.is_some() {
                     if self.is_exit_status_in_config(config) {

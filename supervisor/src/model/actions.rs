@@ -29,7 +29,7 @@ impl Display for ParseActionError {
     }
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub enum Action {
     Quit,
     Reload,
@@ -37,6 +37,19 @@ pub enum Action {
     Status,
     Start(Vec<String>),
     Stop(Vec<String>),
+}
+
+impl ToString for Action {
+    fn to_string(&self) -> String {
+        match &self {
+            Action::Quit => String::from("quit"),
+            Action::Reload => String::from("reload"),
+            Action::Restart(programs) => format!("restart {}", programs.join(" ")),
+            Action::Status => String::from("status"),
+            Action::Start(programs) => format!("start {}", programs.join(" ")),
+            Action::Stop(programs) => format!("stop {}", programs.join(" ")),
+        }
+    }
 }
 
 impl TryFrom<String> for Action {
@@ -121,6 +134,20 @@ mod tests {
         }
         Ok(())
     }
+    #[test]
+    fn convert_string_1() -> std::result::Result<(), ParseActionError> {
+        let action = Action::Reload;
+        assert_eq!(action.to_string(), String::from("reload"));
+        Ok(())
+    }
+    #[test]
+    fn convert_string_2() -> std::result::Result<(), ParseActionError> {
+        let action = Action::Start(vec![String::from("bonjour"), String::from("Hello")]);
+        let cpy: Action = action.clone().to_string().try_into()?;
+        assert_eq!(cpy, action);
+        Ok(())
+    }
+
     #[test]
     fn reload() -> std::result::Result<(), ParseActionError> {
         let action: Action = String::from("reload").try_into()?;

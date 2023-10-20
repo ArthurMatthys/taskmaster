@@ -14,7 +14,7 @@ use signal::set_sig_handlers;
 
 use crate::file_handler::close_fds;
 
-const LOCKFILE: &str = "/var/lock/matt_daemon.lock";
+const LOCKFILE: &str = "/var/lock/taskmaster.lock";
 
 struct Mask {
     inner: libc::mode_t,

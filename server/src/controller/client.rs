@@ -121,8 +121,6 @@ impl Client {
                 };
 
                 self.print(programs.handle_action(action)?.as_bytes())?;
-                // TODO
-                // Send action to programs
             }
         };
         Ok(ClientResponse::Continue)

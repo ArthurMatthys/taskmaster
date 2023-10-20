@@ -97,7 +97,7 @@ pub fn server() -> Result<()> {
         }
 
         if !clients.read_clients(&mut programs)? {
-            eprintln!("Exiting");
+            logger::log(format!("Exiting server"), logger::LogInfo::Info)?;
             break;
         };
 

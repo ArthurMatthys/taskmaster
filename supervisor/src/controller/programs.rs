@@ -1,14 +1,24 @@
+use logger::{log, LogInfo};
+
 use crate::Action;
 use std::{fs::File, io::BufReader};
 
-use crate::model::{Error, Programs, Result};
+use crate::model::{Error, Origin, Programs, Result};
 
 impl Programs {
     // loads a new configuration from a file, returns it. Doesn't change the current state
     pub fn new() -> Result<Programs> {
+        std::env::vars()
+            .for_each(|(key, value)| log(format!("{key} // {value}\n"), LogInfo::Error).unwrap());
         let path = match std::env::var("TASKMASTER_CONFIG_FILE_PATH") {
             Ok(path) => path,
-            Err(e) => return Err(Error::ConfigEnvVarNotFound(e)),
+            Err(e) => {
+                log(
+                    "Could not find env variable for taskmaster config\n".to_string(),
+                    LogInfo::Error,
+                )?;
+                return Err(Error::ConfigEnvVarNotFound(e));
+            }
         };
         let mut args = path.split_whitespace();
         match args.next() {
@@ -56,20 +66,24 @@ impl Programs {
         Ok(())
     }
 
-    pub fn start(&mut self, programs: &[String]) -> String {
-        todo!();
+    pub fn start(&mut self, programs: &[String]) -> Result<()> {
+        self.programs
+            .iter_mut()
+            .filter(|(name, _)| programs.contains(name))
+            .try_for_each(|(_, p)| p.start_process(Origin::CLI))?;
+        Ok(())
     }
 
-    pub fn restart(&mut self, programs: &Vec<String>) -> Result<()> {
+    pub fn restart(&mut self, programs: &[String]) -> Result<()> {
         self.stop(programs)?;
-        self.start(programs);
+        self.start(programs)?;
         Ok(())
     }
 
     pub fn handle_action(&mut self, action: Action) -> Result<String> {
         Ok(match action {
             Action::Start(programs) => {
-                self.start(&programs);
+                self.start(&programs)?;
                 "Programs started".to_string()
             }
             Action::Stop(programs) => {
@@ -81,15 +95,11 @@ impl Programs {
                 "Programs restarted".to_string()
                 // self.relaunch(),
             }
-            Action::Status => {
-                self.status()
-                // self.status(),
-            }
+            Action::Status => self.status(),
             // reload the config file
             Action::Reload => {
                 self.update_config()?;
                 "Reload done".to_string()
-                // self.reload(),
             }
             // clean stop the job control and exit
             // Handled in the server

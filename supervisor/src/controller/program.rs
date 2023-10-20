@@ -1,3 +1,7 @@
+use std::time::Instant;
+
+use logger::{log, LogInfo};
+
 use crate::model::ChildProcess;
 use crate::model::Program;
 use crate::model::ProgramState;
@@ -6,40 +10,27 @@ use crate::model::Result;
 // use logger::{log, LogInfo};
 
 impl Program {
-    pub fn start_process(&mut self) -> Result<()> {
-        if !self.auto_start {
-            return Ok(());
-        }
-
-        for num_proc in 0..self.num_procs {
-            match ChildProcess::start(&self, num_proc) {
-                Ok(child_process) => self.children.push(child_process),
-                Err(e) => return Err(e),
-            }
-        }
-
-        // start process ensures that the process is started, but it does not ensure that the process is ready to receive requests.
-        // This is a hack to wait for the process to be ready to receive requests.
-        std::thread::sleep(std::time::Duration::from_millis(500));
-        Ok(())
-    }
-
     pub fn check(&mut self) -> Result<()> {
-        let self_clone = self.clone(); // Improvement: remove clone?
+        let self_clone = self.clone();
 
         for (index, child_process) in self.children.iter_mut().enumerate() {
             match child_process.check(&self_clone, index as u8) {
                 Ok(_) => continue,
-                Err(e) => return Err(e),
+                Err(e) => {
+                    let _ = log(
+                        format!("Failed to check program: {} with error {}\n", self.name, e),
+                        LogInfo::Error,
+                    );
+                }
             }
         }
 
-        self.reconcile_state()?;
+        self.reconcile_state();
 
         Ok(())
     }
 
-    pub fn reconcile_state(&mut self) -> Result<()> {
+    pub fn reconcile_state(&mut self) {
         let mut killed = false;
         let mut fatal = false;
         let mut stopped = true;
@@ -75,6 +66,30 @@ impl Program {
                 child_process.state = ProgramState::Pending;
             }
         }
+    }
+
+    pub fn start_process(&mut self) -> Result<()> {
+        if !self.auto_start {
+            return Ok(());
+        }
+
+        let amount_of_process_running = self.children.len() as u8;
+        for num_proc in amount_of_process_running..self.num_procs {
+            match ChildProcess::start(self, num_proc) {
+                Ok(child_process) => self.children.push(child_process),
+                Err(e) => {
+                    let _ = log(format!("Failed to rerun program: {}", e), LogInfo::Error);
+                    self.children.push(ChildProcess {
+                        child: None,
+                        state: ProgramState::Backoff,
+                        exit_status: None,
+                        start_secs: Some(Instant::now()),
+                        end_time: None,
+                        restart_count: 0,
+                    })
+                }
+            }
+        }
 
         Ok(())
     }
@@ -83,6 +98,7 @@ impl Program {
         let current_num_procs = self.children.len();
         let new_num_procs = new_program.num_procs as usize;
 
+        // if any of these parameters change, we need to restart the program
         if self.name != new_program.name
             || self.cmd != new_program.cmd
             || self.auto_restart != new_program.auto_restart
@@ -101,25 +117,18 @@ impl Program {
             }
 
             self.children.clear();
-            for num_proc in 0..new_num_procs {
-                match ChildProcess::start(&self, num_proc as u8) {
-                    Ok(child_process) => self.children.push(child_process),
-                    Err(e) => return Err(e),
-                }
-            }
+            self.start_process()?;
+        // if the number of processes is less, we need to kill the extra processes
         } else if self.num_procs > new_program.num_procs {
             for _ in new_num_procs..current_num_procs {
                 if let Some(child_process) = &mut self.children.pop() {
                     child_process.kill_program();
                 }
             }
+        // if the number of processes is more, we need to start the extra processes
         } else if self.num_procs < new_program.num_procs {
-            let len = new_program.num_procs - self.num_procs;
-            for num_proc in 0..len {
-                match ChildProcess::start(&self, num_proc) {
-                    Ok(child_process) => self.children.push(child_process),
-                    Err(e) => return Err(e),
-                }
+            if let Err(e) = self.start_process() {
+                let _ = log(format!("Failed to start program: {}", e), LogInfo::Error);
             }
         }
 
@@ -128,7 +137,7 @@ impl Program {
         }
 
         if self.start_secs != new_program.start_secs {
-            self.start_secs = new_program.start_secs.clone();
+            self.start_secs = new_program.start_secs;
         }
 
         Ok(())

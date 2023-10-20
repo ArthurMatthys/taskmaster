@@ -20,7 +20,7 @@ impl Programs {
                             Ok(new_config)
                         }
                     }
-                    Err(e) => return Err(Error::De(format!("Deserialise error : {}", e))),
+                    Err(e) => Err(Error::De(format!("Deserialise error : {}", e))),
                 }
             }
             None => Err(Error::NoFilenameProvided),

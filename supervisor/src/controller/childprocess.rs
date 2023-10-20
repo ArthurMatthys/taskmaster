@@ -1,6 +1,6 @@
 use crate::model::{AutoRestart, ChildProcess, Output, Program, ProgramState};
 
-use crate::model::Result;
+use crate::model::{Error, Result};
 use logger::{log, LogInfo};
 use std::fs::OpenOptions;
 use std::path::Path;
@@ -20,10 +20,7 @@ pub fn with_umask<F: FnOnce() -> Result<ChildProcess>>(mask: u16, f: F) -> Resul
         let old_mask = umask(mask);
         let result = f();
         umask(old_mask);
-        match result {
-            Ok(child_process) => Ok(child_process),
-            Err(e) => Err(e),
-        }
+        result
     }
 }
 
@@ -51,11 +48,11 @@ impl ChildProcess {
                     if let Some(dir) = path.parent() {
                         std::fs::create_dir_all(dir)?;
                     }
-                    let file = File::create(path).unwrap();
+                    let file = File::create(path)?;
                     command.stdout(Stdio::from(file));
                 }
                 _ => {
-                    std::fs::create_dir_all(&log_dir)?;
+                    std::fs::create_dir_all(log_dir)?;
                     let file_name = format!("{}_stdout_{}", program.name, process_number);
                     let log_path = Path::new(log_dir).join(file_name);
                     let io = match OpenOptions::new().append(true).create(true).open(&log_path) {
@@ -82,12 +79,12 @@ impl ChildProcess {
                     if let Some(dir) = path.parent() {
                         std::fs::create_dir_all(dir)?;
                     }
-                    let file = File::create(path).unwrap();
+                    let file = File::create(path)?;
                     command.stderr(Stdio::from(file));
                 }
                 _ => {
                     let file_name = format!("{}_stderr_{}", program.name, process_number);
-                    std::fs::create_dir_all(&log_dir)?; // Create the directory if it does not exist
+                    std::fs::create_dir_all(log_dir)?;
                     let log_path = Path::new(log_dir).join(file_name);
                     let io = match OpenOptions::new().append(true).create(true).open(&log_path) {
                         Ok(file) => Stdio::from(file),
@@ -128,14 +125,29 @@ impl ChildProcess {
         })
     }
 
-    pub fn get_child_exit_status(&mut self) -> Option<i32> {
-        match self.child.as_mut()?.lock().unwrap().try_wait() {
-            Ok(Some(status)) => Some(status.code().unwrap_or(-1)),
-            Ok(None) => None,
-            Err(e) => {
-                _ = log(format!("Failed to wait on child: {}\n", e), LogInfo::Error);
-                Some(-1) // internal exit status that doesn't exist
+    // lost in state transition between None that has no update and none where started didn't work
+    pub fn get_child_exit_status(&mut self) -> Result<Option<i32>> {
+        match self.child.as_mut() {
+            Some(child) => {
+                match child.lock() {
+                    Ok(lock) => match lock.try_wait() {
+                        Ok(Some(status)) => Ok(Some(status.code().unwrap_or(-1))),
+                        Ok(None) => Ok(None),
+                        Err(e) => {
+                            let _ =
+                                log(format!("Failed to wait on child: {}\n", e), LogInfo::Error);
+                            Ok(Some(-1)) // internal exit status that doesn't exist
+                        }
+                    },
+                    Err(_) => {
+                        let _ = log(format!("Failed to lock child process.\n"), LogInfo::Error);
+                        Err(Error::IoError {
+                            message: "Failed to lock child process.".to_string(),
+                        })
+                    }
+                }
             }
+            None => Ok(None),
         }
     }
 
@@ -153,7 +165,10 @@ impl ChildProcess {
     }
 
     pub fn rerun_program(&mut self, program: &Program, process_number: u8) -> Result<ChildProcess> {
-        ChildProcess::start(program, process_number)
+        let restart_count = self.restart_count;
+        let updated_child = ChildProcess::start(program, process_number);
+        self.restart_count = restart_count;
+        updated_child
     }
 
     pub fn increment_start_retries(&mut self) {
@@ -174,7 +189,24 @@ impl ChildProcess {
                     return Ok(());
                 }
 
-                self.exit_status = self.get_child_exit_status();
+                let status = self.get_child_exit_status();
+                match status {
+                    Ok(status) => self.exit_status = status,
+                    Err(e) => {
+                        let _ = log(
+                            format!("Failed to get child exit status: {}", e),
+                            LogInfo::Error,
+                        );
+
+                        self.kill_program();
+                        if let Err(e) = self.rerun_program(config, process_number) {
+                            let _ = log(format!("Failed to rerun program: {}", e), LogInfo::Error);
+                            return Err(e);
+                        }
+                        self.increment_start_retries();
+                    }
+                }
+
                 if self.exit_status.is_some() {
                     if self.is_exit_status_in_config(config) {
                         // exit with expected status
@@ -186,7 +218,7 @@ impl ChildProcess {
                         // backoff
                         self.kill_program();
                         if let Err(e) = self.rerun_program(config, process_number) {
-                            log(format!("Failed to rerun program: {}", e), LogInfo::Error);
+                            let _ = log(format!("Failed to rerun program: {}", e), LogInfo::Error);
                             return Err(e);
                         }
                         self.increment_start_retries();
@@ -211,7 +243,7 @@ impl ChildProcess {
                         // backoff
                         self.kill_program();
                         if let Err(e) = self.rerun_program(config, process_number) {
-                            log(format!("Failed to rerun program: {}", e), LogInfo::Error);
+                            let _ = log(format!("Failed to rerun program: {}", e), LogInfo::Error);
                             return Err(e);
                         }
                         self.increment_start_retries();
@@ -224,6 +256,16 @@ impl ChildProcess {
                     return Ok(());
                 }
 
+                if self.child.is_none() {
+                    // starting previously failed
+                    if let Err(e) = self.rerun_program(config, process_number) {
+                        let _ = log(format!("Failed to rerun program: {}", e), LogInfo::Error);
+                        return Err(e);
+                    }
+                    self.increment_start_retries();
+                    self.state = ProgramState::Backoff;
+                }
+
                 self.exit_status = self.get_child_exit_status();
                 if self.exit_status.is_some() {
                     if self.restart_count >= config.start_retries {
@@ -232,7 +274,7 @@ impl ChildProcess {
                     } else {
                         self.kill_program();
                         if let Err(e) = self.rerun_program(config, process_number) {
-                            log(format!("Failed to rerun program: {}", e), LogInfo::Error);
+                            let _ = log(format!("Failed to rerun program: {}", e), LogInfo::Error);
                             return Err(e);
                         }
                         self.increment_start_retries();

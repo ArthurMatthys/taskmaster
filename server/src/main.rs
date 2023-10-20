@@ -4,7 +4,10 @@ mod model;
 pub use controller::*;
 pub use daemonize::{Error, Result};
 // use logger::{log, LogInfo};
+pub use daemonize::{Error, Result};
+// use logger::{log, LogInfo};
 pub use model::*;
+use supervisor::Programs;
 use supervisor::Programs;
 
 mod server;

@@ -10,7 +10,6 @@ use supervisor::{Action, ParseActionError};
 use crate::{Client, Clients};
 
 const NBR_CLIENT_MAX: usize = 3;
-const PROMPT: &str = "\x1B[94mTaskMaster>\x1B[0m";
 const READ_DURATION: Duration = Duration::from_millis(100);
 
 impl Clients {
@@ -25,12 +24,11 @@ impl Clients {
             )?;
             false
         } else {
-            let mut new_client = Client::new(stream, addr)?;
+            let new_client = Client::new(stream, addr)?;
             log(
                 format!("Connecting to new client with address {}\n", addr),
                 LogInfo::Info,
             )?;
-            new_client.print_prompt()?;
             self.clients.push(new_client);
             true
         })
@@ -47,7 +45,6 @@ impl Clients {
                 ClientResponse::Disconnected => to_clear.push(i),
                 ClientResponse::Exit => return Ok(false),
             }
-            client.print_prompt()?;
         }
         for i in to_clear.into_iter().rev() {
             log(
@@ -76,24 +73,12 @@ impl Client {
             reader: BufReader::new(stream.try_clone()?),
             stream,
             addr,
-            prompt_needed: true,
         })
     }
 
     fn print(&mut self, buf: &[u8]) -> Result<()> {
         let mut writer = BufWriter::new(&self.stream);
         writer.write_all(buf)?;
-        Ok(())
-    }
-    // fn get_addr(&self) -> String {
-    //     self.addr.to_string()
-    // }
-    /// Display the promt of taskmaster when needed
-    fn print_prompt(&mut self) -> Result<()> {
-        if self.prompt_needed {
-            self.print(PROMPT.as_bytes())?;
-            self.prompt_needed = false;
-        }
         Ok(())
     }
 
@@ -124,17 +109,16 @@ impl Client {
                     Ok(a) => a,
                     Err(e) => {
                         self.print_error(e)?;
-                        self.prompt_needed = true;
                         return Ok(ClientResponse::Continue);
                     }
                 };
+
+                self.print(format!("action received : {:?}\n", action).as_bytes());
                 if action == Action::Quit {
                     return Ok(ClientResponse::Exit);
                 }
                 // TODO
                 // Send action to programs
-
-                self.prompt_needed = true;
             }
         };
         Ok(ClientResponse::Continue)

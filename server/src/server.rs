@@ -86,6 +86,7 @@ pub fn server(programs: Programs) -> Result<()> {
         }
 
         if !clients.read_clients()? {
+            eprintln!("Exiting");
             break;
         };
 

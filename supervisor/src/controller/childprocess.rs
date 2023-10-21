@@ -165,16 +165,44 @@ impl ChildProcess {
                 match &self.exit_status {
                     ChildExitStatus::Exited(_) => {
                         if self.is_exit_status_in_config(config) {
+                            let _ = log(
+                                format!(
+                                    "{}--{}: From starting to exited",
+                                    config.name, process_number
+                                ),
+                                LogInfo::Info,
+                            );
                             self.state = ProgramState::Exited;
                         } else if self.restart_count >= config.start_retries {
+                            let _ = log(
+                                format!(
+                                    "{}--{}: From starting to exited",
+                                    config.name, process_number
+                                ),
+                                LogInfo::Info,
+                            );
                             self.state = ProgramState::Fatal;
                         } else {
                             match config.auto_restart {
                                 AutoRestart::Never => {
+                                    let _ = log(
+                                        format!(
+                                            "{}--{}: From starting to pending",
+                                            config.name, process_number
+                                        ),
+                                        LogInfo::Info,
+                                    );
                                     self.state = ProgramState::Pending;
                                 }
                                 _ => {
                                     // backoff
+                                    let _ = log(
+                                        format!(
+                                            "{}--{}: From starting to backoff",
+                                            config.name, process_number
+                                        ),
+                                        LogInfo::Info,
+                                    );
                                     self.state = ProgramState::Backoff;
                                     self.kill_program();
                                     self.increment_start_retries();
@@ -194,6 +222,13 @@ impl ChildProcess {
                     ChildExitStatus::Running => {
                         if elapsed_start_time >= (config.start_secs as u64) {
                             self.restart_count = 0;
+                            let _ = log(
+                                format!(
+                                    "{}--{}: From starting to running",
+                                    config.name, process_number
+                                ),
+                                LogInfo::Info,
+                            );
                             self.state = ProgramState::Running;
                         }
                         Ok(())
@@ -207,17 +242,45 @@ impl ChildProcess {
                 match &self.exit_status {
                     ChildExitStatus::Exited(_) => {
                         if self.is_exit_status_in_config(config) {
+                            let _ = log(
+                                format!(
+                                    "{}--{}: From running to exited",
+                                    config.name, process_number
+                                ),
+                                LogInfo::Info,
+                            );
                             self.state = ProgramState::Exited;
                         } else if self.restart_count >= config.start_retries {
+                            let _ = log(
+                                format!(
+                                    "{}--{}: From running to fatal",
+                                    config.name, process_number
+                                ),
+                                LogInfo::Info,
+                            );
                             self.state = ProgramState::Fatal;
                         } else {
                             match config.auto_restart {
                                 AutoRestart::Never => {
+                                    let _ = log(
+                                        format!(
+                                            "{}--{}: From running to pending",
+                                            config.name, process_number
+                                        ),
+                                        LogInfo::Info,
+                                    );
                                     self.state = ProgramState::Pending;
                                 }
                                 _ => {
                                     // backoff
                                     self.kill_program();
+                                    let _ = log(
+                                        format!(
+                                            "{}--{}: From running to backoff",
+                                            config.name, process_number
+                                        ),
+                                        LogInfo::Info,
+                                    );
                                     self.state = ProgramState::Backoff;
                                     self.increment_start_retries();
                                     if let Err(e) = self.rerun_program(config, process_number) {
@@ -244,10 +307,24 @@ impl ChildProcess {
                         if !self.is_exit_status_in_config(config) {
                             self.kill_program();
                             if self.restart_count >= config.start_retries {
+                                let _ = log(
+                                    format!(
+                                        "{}--{}: From backoff to fatal",
+                                        config.name, process_number
+                                    ),
+                                    LogInfo::Info,
+                                );
                                 self.state = ProgramState::Fatal;
                             } else {
                                 match config.auto_restart {
                                     AutoRestart::Never => {
+                                        let _ = log(
+                                            format!(
+                                                "{}--{}: From backoff to pending",
+                                                config.name, process_number
+                                            ),
+                                            LogInfo::Info,
+                                        );
                                         self.state = ProgramState::Pending;
                                     }
                                     _ => {
@@ -259,6 +336,13 @@ impl ChildProcess {
                                             );
                                             return Err(e);
                                         }
+                                        let _ = log(
+                                            format!(
+                                                "{}--{}: Stay in backoff",
+                                                config.name, process_number
+                                            ),
+                                            LogInfo::Info,
+                                        );
                                         self.state = ProgramState::Backoff;
                                     }
                                 }
@@ -267,6 +351,13 @@ impl ChildProcess {
                         Ok(())
                     }
                     ChildExitStatus::Running => {
+                        let _ = log(
+                            format!(
+                                "{}--{}: From backoff to running",
+                                config.name, process_number
+                            ),
+                            LogInfo::Info,
+                        );
                         self.state = ProgramState::Running;
                         self.restart_count = 0;
                         Ok(())
@@ -277,6 +368,13 @@ impl ChildProcess {
                             return Ok(());
                         }
                         if self.restart_count >= config.start_retries {
+                            let _ = log(
+                                format!(
+                                    "{}--{}: From backoff to fatal",
+                                    config.name, process_number
+                                ),
+                                LogInfo::Info,
+                            );
                             self.state = ProgramState::Fatal;
                         } else {
                             self.increment_start_retries();
@@ -285,6 +383,10 @@ impl ChildProcess {
                                     log(format!("Failed to rerun program: {}", e), LogInfo::Error);
                                 return Err(e);
                             }
+                            let _ = log(
+                                format!("{}--{}: Stay in backoff", config.name, process_number),
+                                LogInfo::Info,
+                            );
                             self.state = ProgramState::Backoff;
                         }
                         Ok(())
@@ -297,8 +399,22 @@ impl ChildProcess {
                 match &self.exit_status {
                     ChildExitStatus::Exited(_) => {
                         if self.is_exit_status_in_config(config) {
+                            let _ = log(
+                                format!(
+                                    "{}--{}: From stopping to stopped",
+                                    config.name, process_number
+                                ),
+                                LogInfo::Info,
+                            );
                             self.state = ProgramState::Stopped;
                         } else {
+                            let _ = log(
+                                format!(
+                                    "{}--{}: From stopping to fatal",
+                                    config.name, process_number
+                                ),
+                                LogInfo::Info,
+                            );
                             self.state = ProgramState::Fatal;
                         }
                         Ok(())
@@ -306,6 +422,13 @@ impl ChildProcess {
                     ChildExitStatus::Running => {
                         if elapsed_exit_time >= (config.stop_time as u64) {
                             self.kill_program();
+                            let _ = log(
+                                format!(
+                                    "{}--{}: From stopping to killed",
+                                    config.name, process_number
+                                ),
+                                LogInfo::Info,
+                            );
                             self.state = ProgramState::Killed;
                         }
                         Ok(())

@@ -39,6 +39,8 @@ pub enum ProgramState {
     Pending,
     // Unknown state (should never happen)
     Error,
+    // Restarting
+    Restarting,
 }
 
 impl ToString for ProgramState {
@@ -54,6 +56,7 @@ impl ToString for ProgramState {
             ProgramState::Killed => "killed",
             ProgramState::Pending => "pending",
             ProgramState::Error => "error",
+            ProgramState::Restarting => "restarting",
         }
         .to_string()
     }

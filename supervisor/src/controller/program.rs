@@ -17,6 +17,7 @@ impl Program {
         let self_clone = self.clone();
 
         for (index, child_process) in self.children.iter_mut().enumerate() {
+            eprintln!("checking child {index}");
             match child_process.check(&self_clone, index as u8) {
                 Ok(_) => continue,
                 Err(Error::WaitError(e)) => {
@@ -96,6 +97,14 @@ impl Program {
         Ok(())
     }
 
+    pub fn restart_processes(&mut self) -> Result<()> {
+        let stop_signal = self.stop_signal.clone() as u8;
+        self.children
+            .iter_mut()
+            .try_for_each(|c| c.restart(stop_signal))?;
+        Ok(())
+    }
+
     pub fn kill_processes(&mut self) {
         self.children.iter_mut().for_each(|c| c.kill_program());
         self.children.clear();
@@ -159,19 +168,11 @@ impl Program {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
-    use std::os::unix::fs::OpenOptionsExt;
-    use std::os::unix::fs::PermissionsExt;
 
-    use crate::with_umask;
     use crate::AutoRestart;
-    use crate::ChildProcess;
     use crate::StopSignal;
 
     use crate::ProgramState;
-    use std::fs::OpenOptions;
-    use std::io::Write;
-    use std::time::Instant;
 
     #[test]
     fn test_check_inexistant_command() -> Result<()> {

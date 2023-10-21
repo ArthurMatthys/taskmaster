@@ -7,17 +7,7 @@ use crate::model::{Error, Origin, Programs, Result};
 
 impl Programs {
     // loads a new configuration from a file, returns it. Doesn't change the current state
-    pub fn new() -> Result<Programs> {
-        let path = match std::env::var("TASKMASTER_CONFIG_FILE_PATH") {
-            Ok(path) => path,
-            Err(e) => {
-                log(
-                    "Could not find env variable for taskmaster config\n".to_string(),
-                    LogInfo::Error,
-                )?;
-                return Err(Error::ConfigEnvVarNotFound(e));
-            }
-        };
+    pub fn new_from_path(path: String) -> Result<Programs> {
         let mut args = path.split_whitespace();
         match args.next() {
             Some(filename) => {
@@ -42,6 +32,19 @@ impl Programs {
             }
             None => Err(Error::NoFilenameProvided),
         }
+    }
+    pub fn new() -> Result<Programs> {
+        let path = match std::env::var("TASKMASTER_CONFIG_FILE_PATH") {
+            Ok(path) => path,
+            Err(e) => {
+                log(
+                    "Could not find env variable for taskmaster config\n".to_string(),
+                    LogInfo::Error,
+                )?;
+                return Err(Error::ConfigEnvVarNotFound(e));
+            }
+        };
+        Self::new_from_path(path)
     }
 
     pub fn check(&mut self) -> Result<()> {
@@ -95,8 +98,12 @@ impl Programs {
     }
 
     pub fn restart(&mut self, programs: &[String]) -> Result<()> {
-        self.stop(programs)?;
-        self.start(programs)?;
+        self.programs
+            .iter_mut()
+            .filter(|(name, _)| programs.contains(name))
+            .try_for_each(|(_, p)| p.restart_processes())?;
+        // self.stop(programs)?;
+        // self.start(programs)?;
         Ok(())
     }
 
@@ -127,5 +134,78 @@ impl Programs {
                 unreachable!();
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use crate::ProgramState;
+
+    use super::*;
+
+    fn sleep(time: u64) {
+        std::thread::sleep(Duration::from_secs(time));
+    }
+
+    fn config() -> Programs {
+        let data = r#"
+        programs:
+            sleep:
+              cmd: "/usr/bin/sleep 10"
+              numprocs: 1
+              umask: 022
+              workingdir: /tmp
+              autostart: true
+              autorestart: unexpected
+              exitcodes:
+                - 0
+                - 2
+              startretries: 3
+              startsecs: 5
+              stopsignal: TERM
+              stoptime: 1
+              stdout: "/tmp/nginx.stdout"
+              stderr: "/tmp/nginx.stderr"
+              env:
+                STARTED_BY: taskmaster
+                ANSWER: 42
+        "#;
+        let mut v: Programs = serde_yaml::from_str(data).unwrap();
+        v.programs.iter_mut().for_each(|(name, program)| {
+            program.name = name.clone();
+        });
+        v
+    }
+    fn first_child_state(programs: &Programs) -> ProgramState {
+        programs
+            .programs
+            .get("sleep")
+            .unwrap()
+            .children
+            .first()
+            .unwrap()
+            .state
+            .clone()
+    }
+
+    #[test]
+    fn test_reload() -> Result<()> {
+        let mut programs = config();
+        programs.start_all()?;
+        assert_eq!(first_child_state(&programs), ProgramState::Starting);
+        programs.check()?;
+        assert_eq!(first_child_state(&programs), ProgramState::Running);
+        programs.restart(&["sleep".to_string()])?;
+        assert_eq!(first_child_state(&programs), ProgramState::Restarting);
+        programs.check()?;
+        assert_eq!(first_child_state(&programs), ProgramState::Restarting);
+        sleep(2);
+        programs.check()?;
+        assert_eq!(first_child_state(&programs), ProgramState::Starting);
+        programs.check()?;
+        assert_eq!(first_child_state(&programs), ProgramState::Running);
+        Ok(())
     }
 }

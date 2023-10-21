@@ -18,7 +18,7 @@ tree
 ## 1. Compile the tester binary
 
 ```shell
-go build -C ./binary
+GOOS=linux GOARCH=arm64 go build -C ./binary
 ```
 
 ## 2. Run the test

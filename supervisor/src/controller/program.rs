@@ -135,6 +135,7 @@ impl Program {
                     last.kill_program();
                 }
             }
+            new_program.children = self.children.drain(..).collect::<Vec<_>>();
             if let Err(e) = new_program.start_process(Origin::Config) {
                 let _ = log(format!("Failed to start program: {}", e), LogInfo::Error);
             }

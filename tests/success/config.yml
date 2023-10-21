@@ -1,6 +1,6 @@
 programs:
   testProgram:
-    cmd: "./binary/tester -"
+    cmd: "/app/tests/binary/tester"
     numprocs: 1
     umask: 022
     workingdir: /tmp
@@ -12,9 +12,7 @@ programs:
     startsecs: 5
     stopsignal: TERM
     stoptime: 10
-    stdout:
-      File: "/tmp/testProgram.stdout"
-    stderr:
-      File: /tmp/testProgram.stderr
+    stdout: "/tmp/testProgram.stdout"
+    stderr: "/tmp/testProgram.stderr"
     env:
       TEST_ENV: test

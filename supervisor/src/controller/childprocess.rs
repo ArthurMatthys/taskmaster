@@ -447,7 +447,10 @@ impl ChildProcess {
             // ProgramState::Stopped
             // ProgramState::Fatal
             // ProgramState::Pending
-            _ => Ok(()),
+            _ => {
+                self.kill_program();
+                Ok(())
+            }
         }
     }
 }

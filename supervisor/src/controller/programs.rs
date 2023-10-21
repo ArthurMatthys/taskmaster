@@ -53,8 +53,7 @@ impl Programs {
         self.programs.iter_mut().try_for_each(|(_, p)| p.check())
     }
 
-    pub fn update_config(&mut self) -> Result<Programs> {
-        let mut new_config = Self::new(false)?;
+    pub fn update_config_with_config(&mut self, mut new_config: Self) -> Result<Programs> {
         let mut dealt = HashSet::new();
 
         for (name, new_p) in new_config.programs.iter_mut() {
@@ -70,6 +69,11 @@ impl Programs {
             .filter(|(name, _)| !dealt.contains(name))
             .for_each(|(_, p)| p.kill_processes());
         Ok(new_config)
+    }
+
+    pub fn update_config(&mut self) -> Result<Programs> {
+        let new_config = Self::new(false)?;
+        self.update_config_with_config(new_config)
     }
 
     pub fn start_all(&mut self) -> Result<()> {
@@ -161,7 +165,7 @@ mod tests {
         let data = r#"
         programs:
             sleep:
-              cmd: "/usr/bin/sleep 10"
+              cmd: "/usr/bin/sleep 2"
               numprocs: 1
               umask: 022
               workingdir: /tmp
@@ -197,6 +201,16 @@ mod tests {
             .state
             .clone()
     }
+    fn first_child_pid(programs: &Programs) -> Vec<u32> {
+        programs
+            .programs
+            .get("sleep")
+            .unwrap()
+            .children
+            .iter()
+            .map(|c| c.child.clone().unwrap().lock().unwrap().id())
+            .collect::<Vec<_>>()
+    }
 
     #[test]
     fn test_reload() -> Result<()> {
@@ -208,10 +222,92 @@ mod tests {
         programs.restart(&["sleep".to_string()])?;
         assert_eq!(first_child_state(&programs), ProgramState::Restarting);
         programs.check()?;
-        assert_eq!(first_child_state(&programs), ProgramState::Restarting);
+        assert_eq!(first_child_state(&programs), ProgramState::Running);
         sleep(2);
         programs.check()?;
+        assert_eq!(first_child_state(&programs), ProgramState::Exited);
+        Ok(())
+    }
+
+    #[test]
+    fn reload_conf_more_procs() -> Result<()> {
+        let mut programs = config();
+        programs.start_all()?;
+        let mut new_config = config();
+        new_config.programs.get_mut("sleep").unwrap().num_procs = 2;
+        let id = first_child_pid(&programs);
+        programs = programs.update_config_with_config(new_config)?;
+        let new_id = first_child_pid(&programs);
+        assert_eq!(id, new_id[..1]);
+        Ok(())
+    }
+    #[test]
+    fn reload_conf_less_procs() -> Result<()> {
+        let mut programs = config();
+        programs.programs.get_mut("sleep").unwrap().num_procs = 2;
+        programs.start_all()?;
+        let new_config = config();
+        let id = first_child_pid(&programs);
+        programs = programs.update_config_with_config(new_config)?;
+        let new_id = first_child_pid(&programs);
+        assert_eq!(id[..1], new_id);
+        Ok(())
+    }
+    #[test]
+    fn reload_conf_change_conf() -> Result<()> {
+        let mut programs = config();
+        programs.start_all()?;
+        let mut new_config = config();
+        new_config.programs.get_mut("sleep").unwrap().exitcodes = vec![3];
+        let id = first_child_pid(&programs);
+        programs = programs.update_config_with_config(new_config)?;
+        let new_id = first_child_pid(&programs);
+        assert!(id != new_id);
+        Ok(())
+    }
+    #[test]
+    fn start_program_01() -> Result<()> {
+        let mut programs = config();
+        programs.start_all()?;
         assert_eq!(first_child_state(&programs), ProgramState::Starting);
+        programs.check()?;
+        assert_eq!(first_child_state(&programs), ProgramState::Running);
+        programs.start(&["sleep".to_string()])?;
+        assert_eq!(first_child_state(&programs), ProgramState::Running);
+        Ok(())
+    }
+    #[test]
+    fn start_program_02() -> Result<()> {
+        let mut programs = config();
+        programs.programs.get_mut("sleep").unwrap().auto_start = false;
+        programs.start_all()?;
+        programs.start(&["sleep".to_string()])?;
+        assert_eq!(first_child_state(&programs), ProgramState::Starting);
+        Ok(())
+    }
+    #[test]
+    fn stop_program_01() -> Result<()> {
+        let mut programs = config();
+        programs.start_all()?;
+        assert_eq!(first_child_state(&programs), ProgramState::Starting);
+        programs.check()?;
+        assert_eq!(first_child_state(&programs), ProgramState::Running);
+        programs.stop(&["sleep".to_string()])?;
+        assert_eq!(first_child_state(&programs), ProgramState::Stopping);
+        sleep(1);
+        programs.check()?;
+        assert_eq!(first_child_state(&programs), ProgramState::Stopped);
+        Ok(())
+    }
+    #[test]
+    fn restart_program_01() -> Result<()> {
+        let mut programs = config();
+        programs.start_all()?;
+        assert_eq!(first_child_state(&programs), ProgramState::Starting);
+        programs.check()?;
+        assert_eq!(first_child_state(&programs), ProgramState::Running);
+        programs.restart(&["sleep".to_string()])?;
+        assert_eq!(first_child_state(&programs), ProgramState::Restarting);
         programs.check()?;
         assert_eq!(first_child_state(&programs), ProgramState::Running);
         Ok(())

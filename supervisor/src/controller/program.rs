@@ -17,7 +17,6 @@ impl Program {
         let self_clone = self.clone();
 
         for (index, child_process) in self.children.iter_mut().enumerate() {
-            eprintln!("checking child {index}");
             match child_process.check(&self_clone, index as u8) {
                 Ok(_) => continue,
                 Err(Error::WaitError(e)) => {
@@ -143,6 +142,7 @@ impl Program {
                 }
             }
             new_program.children = self.children.drain(..).collect::<Vec<_>>();
+            self.children.iter_mut().for_each(|c| c.kill_program());
             if let Err(e) = new_program.start_process(Origin::Config) {
                 let _ = log(format!("Failed to start program: {}", e), LogInfo::Error);
             }

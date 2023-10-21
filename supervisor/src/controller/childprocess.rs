@@ -129,7 +129,6 @@ impl ChildProcess {
 
     pub fn send_kill(&mut self, sig: u8) -> Result<()> {
         if let Some(child) = self.child.as_ref() {
-            eprintln!("Sending a signal");
             self.end_time = Some(Instant::now());
             let pid = child
                 .lock()
@@ -166,7 +165,6 @@ impl ChildProcess {
     }
 
     pub fn check(&mut self, config: &Program, process_number: u8) -> Result<()> {
-        eprintln!("starting : {:?}", self.state);
         let elapsed_start_time = self.start_secs.map_or(0, |start_time| {
             Instant::now().duration_since(start_time).as_secs()
         });
@@ -177,7 +175,6 @@ impl ChildProcess {
         match &self.state {
             ProgramState::Starting => {
                 self.exit_status = self.get_child_exit_status()?;
-                eprintln!("starting => exit_status : {:?}", self.exit_status);
                 match &self.exit_status {
                     ChildExitStatus::Exited(_) => {
                         if self.is_exit_status_in_config(config) {
@@ -250,21 +247,10 @@ impl ChildProcess {
                     ChildExitStatus::WaitError(e) => Err(Error::WaitError(e.clone())),
                 }
             }
-            ProgramState::Restarting => match &self.exit_status {
-                ChildExitStatus::Exited(_) => {
-                    eprintln!("yolo1");
-                    self.increment_start_retries();
-                    if let Err(e) = self.rerun_program(config, process_number) {
-                        let _ = log(format!("Failed to rerun program: {}\n", e), LogInfo::Error);
-                        return Err(e);
-                    }
-                    self.state = ProgramState::Starting;
-                    Ok(())
-                }
-                ChildExitStatus::Running => {
-                    eprintln!("yolo2 : {:?} // {:?}", elapsed_exit_time, config.stop_time);
-                    if elapsed_exit_time >= (config.stop_time as u64) {
-                        eprintln!("yolo3");
+            ProgramState::Restarting => {
+                self.exit_status = self.get_child_exit_status()?;
+                match &self.exit_status {
+                    ChildExitStatus::Exited(_) => {
                         self.increment_start_retries();
                         if let Err(e) = self.rerun_program(config, process_number) {
                             let _ =
@@ -272,12 +258,16 @@ impl ChildProcess {
                             return Err(e);
                         }
                         self.state = ProgramState::Starting;
+                        Ok(())
                     }
-                    Ok(())
+                    ChildExitStatus::Running => {
+                        self.state = ProgramState::Running;
+                        Ok(())
+                    }
+                    ChildExitStatus::NonExistent => unreachable!(),
+                    ChildExitStatus::WaitError(e) => Err(Error::WaitError(e.clone())),
                 }
-                ChildExitStatus::NonExistent => unreachable!(),
-                ChildExitStatus::WaitError(e) => Err(Error::WaitError(e.clone())),
-            },
+            }
             ProgramState::Running => {
                 self.exit_status = self.get_child_exit_status()?;
                 match &self.exit_status {
@@ -343,7 +333,6 @@ impl ChildProcess {
             }
             ProgramState::Backoff => {
                 self.exit_status = self.get_child_exit_status()?;
-                eprintln!("backoff => exit_status : {:?}", self.exit_status);
                 match &self.exit_status {
                     ChildExitStatus::Exited(_) => {
                         if !self.is_exit_status_in_config(config) {

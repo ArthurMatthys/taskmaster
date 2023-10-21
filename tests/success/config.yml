@@ -1,6 +1,6 @@
 programs:
   testProgram:
-    cmd: "/app/tests/binary/tester"
+    cmd: "/app/tests/binary/tester -sleepTime 60"
     numprocs: 1
     umask: 022
     workingdir: /tmp

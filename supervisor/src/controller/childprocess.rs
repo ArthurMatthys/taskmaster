@@ -119,25 +119,21 @@ impl ChildProcess {
     }
 
     pub fn kill_program(&mut self) {
-        if let Some(child) = &mut self.child {
-            if let Ok(mut child) = child.lock() {
-                self.end_time = Some(Instant::now());
-                let _ = child.kill();
-            }
-        }
+        let _ = self.send_kill(9);
     }
 
     pub fn send_kill(&mut self, sig: u8) -> Result<()> {
         if let Some(child) = self.child.as_ref() {
             eprintln!("Sending a signal");
             self.end_time = Some(Instant::now());
-            let pid = child
-                .lock()
-                .map_err(|e| Error::IoError {
-                    message: e.to_string(),
-                })?
-                .id();
-            let _ = unsafe { kill(pid as libc::pid_t, sig as libc::c_int) };
+            let mut child = child.lock().map_err(|e| Error::IoError {
+                message: e.to_string(),
+            })?;
+
+            let _ = unsafe { kill(child.id() as libc::pid_t, sig as libc::c_int) };
+            if sig == 9 {
+                let _ = child.wait(); // reap zombies
+            }
         }
         Ok(())
     }
@@ -812,5 +808,101 @@ mod tests {
         assert_eq!(child_process.state, ProgramState::Backoff);
         assert_eq!(child_process.restart_count, 3);
         Ok(())
+    }
+
+    #[test]
+    fn test_send_kill_non_blocking() {
+        // let mut child_process = /* Initialize your ChildProcess here */;
+
+        // Start a long running process
+        // Replace with actual long running process
+        let program = Program {
+            name: "sleep_fatal".to_string(),
+            cmd: ("/bin/sleep".to_string(), vec!["100".to_string()]),
+            num_procs: 1,
+
+            auto_start: false,
+            auto_restart: AutoRestart::Always,
+
+            exitcodes: vec![0],
+
+            start_retries: 3,
+            start_secs: 1,
+
+            stop_signal: StopSignal::Usr1,
+            stop_time: 1,
+            env: None,
+            working_dir: ".".to_string(),
+            umask: "0o022".to_string(),
+            stdout: "abc".to_string(),
+            stderr: "abc".to_string(),
+            children: vec![],
+        };
+
+        let mut child_process = ChildProcess::start(&program, 0).unwrap();
+        std::thread::sleep(std::time::Duration::from_secs(1));
+
+        // Send SIGKILL
+        let _ = child_process.send_kill(9);
+
+        // Perform another operation immediately
+        let start = Instant::now();
+        // This could be any operation, here we just sleep for demonstration
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        let elapsed = start.elapsed();
+
+        // If elapsed time is approximately 1 second, send_kill is non-blocking
+        assert!(
+            elapsed >= std::time::Duration::from_secs(1)
+                && elapsed < std::time::Duration::from_secs(2)
+        );
+    }
+
+    #[test]
+    fn test_send_term_blocking() {
+        // let mut child_process = /* Initialize your ChildProcess here */;
+
+        // Start a long running process
+        // Replace with actual long running process
+        let program = Program {
+            name: "sleep_fatal".to_string(),
+            cmd: ("/bin/sleep".to_string(), vec!["100".to_string()]),
+            num_procs: 1,
+
+            auto_start: false,
+            auto_restart: AutoRestart::Always,
+
+            exitcodes: vec![0],
+
+            start_retries: 3,
+            start_secs: 1,
+
+            stop_signal: StopSignal::Usr1,
+            stop_time: 10,
+            env: None,
+            working_dir: ".".to_string(),
+            umask: "0o022".to_string(),
+            stdout: "abc".to_string(),
+            stderr: "abc".to_string(),
+            children: vec![],
+        };
+
+        let mut child_process = ChildProcess::start(&program, 0).unwrap();
+        std::thread::sleep(std::time::Duration::from_secs(1));
+
+        // Send SIGKILL
+        let _ = child_process.send_kill(15);
+
+        // Perform another operation immediately
+        let start = Instant::now();
+        // This could be any operation, here we just sleep for demonstration
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        let elapsed = start.elapsed();
+
+        // If elapsed time is approximately 1 second, send_kill is non-blocking
+        assert!(
+            elapsed >= std::time::Duration::from_secs(1)
+                && elapsed < std::time::Duration::from_secs(2)
+        );
     }
 }

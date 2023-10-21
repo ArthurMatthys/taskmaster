@@ -167,7 +167,7 @@ impl ChildProcess {
                         if self.is_exit_status_in_config(config) {
                             let _ = log(
                                 format!(
-                                    "{}--{}: From starting to exited",
+                                    "{}--{}: From starting to exited\n",
                                     config.name, process_number
                                 ),
                                 LogInfo::Info,
@@ -176,7 +176,7 @@ impl ChildProcess {
                         } else if self.restart_count >= config.start_retries {
                             let _ = log(
                                 format!(
-                                    "{}--{}: From starting to exited",
+                                    "{}--{}: From starting to exited\n",
                                     config.name, process_number
                                 ),
                                 LogInfo::Info,
@@ -187,7 +187,7 @@ impl ChildProcess {
                                 AutoRestart::Never => {
                                     let _ = log(
                                         format!(
-                                            "{}--{}: From starting to pending",
+                                            "{}--{}: From starting to pending\n",
                                             config.name, process_number
                                         ),
                                         LogInfo::Info,
@@ -198,7 +198,7 @@ impl ChildProcess {
                                     // backoff
                                     let _ = log(
                                         format!(
-                                            "{}--{}: From starting to backoff",
+                                            "{}--{}: From starting to backoff\n",
                                             config.name, process_number
                                         ),
                                         LogInfo::Info,
@@ -208,7 +208,7 @@ impl ChildProcess {
                                     self.increment_start_retries();
                                     if let Err(e) = self.rerun_program(config, process_number) {
                                         let _ = log(
-                                            format!("Failed to rerun program: {}", e),
+                                            format!("Failed to rerun program: {}\n", e),
                                             LogInfo::Error,
                                         );
                                         return Err(e);
@@ -224,7 +224,7 @@ impl ChildProcess {
                             self.restart_count = 0;
                             let _ = log(
                                 format!(
-                                    "{}--{}: From starting to running",
+                                    "{}--{}: From starting to running\n",
                                     config.name, process_number
                                 ),
                                 LogInfo::Info,
@@ -244,7 +244,7 @@ impl ChildProcess {
                         if self.is_exit_status_in_config(config) {
                             let _ = log(
                                 format!(
-                                    "{}--{}: From running to exited",
+                                    "{}--{}: From running to exited\n",
                                     config.name, process_number
                                 ),
                                 LogInfo::Info,
@@ -253,7 +253,7 @@ impl ChildProcess {
                         } else if self.restart_count >= config.start_retries {
                             let _ = log(
                                 format!(
-                                    "{}--{}: From running to fatal",
+                                    "{}--{}: From running to fatal\n",
                                     config.name, process_number
                                 ),
                                 LogInfo::Info,
@@ -264,7 +264,7 @@ impl ChildProcess {
                                 AutoRestart::Never => {
                                     let _ = log(
                                         format!(
-                                            "{}--{}: From running to pending",
+                                            "{}--{}: From running to pending\n",
                                             config.name, process_number
                                         ),
                                         LogInfo::Info,
@@ -276,7 +276,7 @@ impl ChildProcess {
                                     self.kill_program();
                                     let _ = log(
                                         format!(
-                                            "{}--{}: From running to backoff",
+                                            "{}--{}: From running to backoff\n",
                                             config.name, process_number
                                         ),
                                         LogInfo::Info,
@@ -285,7 +285,7 @@ impl ChildProcess {
                                     self.increment_start_retries();
                                     if let Err(e) = self.rerun_program(config, process_number) {
                                         let _ = log(
-                                            format!("Failed to rerun program: {}", e),
+                                            format!("Failed to rerun program: {}\n", e),
                                             LogInfo::Error,
                                         );
                                         return Err(e);
@@ -309,7 +309,7 @@ impl ChildProcess {
                             if self.restart_count >= config.start_retries {
                                 let _ = log(
                                     format!(
-                                        "{}--{}: From backoff to fatal",
+                                        "{}--{}: From backoff to fatal\n",
                                         config.name, process_number
                                     ),
                                     LogInfo::Info,
@@ -320,7 +320,7 @@ impl ChildProcess {
                                     AutoRestart::Never => {
                                         let _ = log(
                                             format!(
-                                                "{}--{}: From backoff to pending",
+                                                "{}--{}: From backoff to pending\n",
                                                 config.name, process_number
                                             ),
                                             LogInfo::Info,
@@ -331,14 +331,14 @@ impl ChildProcess {
                                         self.increment_start_retries();
                                         if let Err(e) = self.rerun_program(config, process_number) {
                                             let _ = log(
-                                                format!("Failed to rerun program: {}", e),
+                                                format!("Failed to rerun program: {}\n", e),
                                                 LogInfo::Error,
                                             );
                                             return Err(e);
                                         }
                                         let _ = log(
                                             format!(
-                                                "{}--{}: Stay in backoff",
+                                                "{}--{}: Stay in backoff\n",
                                                 config.name, process_number
                                             ),
                                             LogInfo::Info,
@@ -353,7 +353,7 @@ impl ChildProcess {
                     ChildExitStatus::Running => {
                         let _ = log(
                             format!(
-                                "{}--{}: From backoff to running",
+                                "{}--{}: From backoff to running\n",
                                 config.name, process_number
                             ),
                             LogInfo::Info,
@@ -370,7 +370,7 @@ impl ChildProcess {
                         if self.restart_count >= config.start_retries {
                             let _ = log(
                                 format!(
-                                    "{}--{}: From backoff to fatal",
+                                    "{}--{}: From backoff to fatal\n",
                                     config.name, process_number
                                 ),
                                 LogInfo::Info,
@@ -379,12 +379,14 @@ impl ChildProcess {
                         } else {
                             self.increment_start_retries();
                             if let Err(e) = self.rerun_program(config, process_number) {
-                                let _ =
-                                    log(format!("Failed to rerun program: {}", e), LogInfo::Error);
+                                let _ = log(
+                                    format!("Failed to rerun program: {}\n", e),
+                                    LogInfo::Error,
+                                );
                                 return Err(e);
                             }
                             let _ = log(
-                                format!("{}--{}: Stay in backoff", config.name, process_number),
+                                format!("{}--{}: Stay in backoff\n", config.name, process_number),
                                 LogInfo::Info,
                             );
                             self.state = ProgramState::Backoff;
@@ -401,7 +403,7 @@ impl ChildProcess {
                         if self.is_exit_status_in_config(config) {
                             let _ = log(
                                 format!(
-                                    "{}--{}: From stopping to stopped",
+                                    "{}--{}: From stopping to stopped\n",
                                     config.name, process_number
                                 ),
                                 LogInfo::Info,
@@ -410,7 +412,7 @@ impl ChildProcess {
                         } else {
                             let _ = log(
                                 format!(
-                                    "{}--{}: From stopping to fatal",
+                                    "{}--{}: From stopping to fatal\n",
                                     config.name, process_number
                                 ),
                                 LogInfo::Info,
@@ -424,7 +426,7 @@ impl ChildProcess {
                             self.kill_program();
                             let _ = log(
                                 format!(
-                                    "{}--{}: From stopping to killed",
+                                    "{}--{}: From stopping to killed\n",
                                     config.name, process_number
                                 ),
                                 LogInfo::Info,

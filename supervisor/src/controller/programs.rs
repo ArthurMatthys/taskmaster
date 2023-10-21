@@ -33,6 +33,7 @@ impl Programs {
                         if args.next().is_some() {
                             Err(Error::TooManyArguments)
                         } else {
+                            new_config.start_all()?;
                             Ok(new_config)
                         }
                     }
@@ -58,6 +59,12 @@ impl Programs {
             }
         }
         Ok(new_config)
+    }
+
+    pub fn start_all(&mut self) -> Result<()> {
+        self.programs
+            .iter_mut()
+            .try_for_each(|(_, p)| p.start_process(Origin::Config))
     }
 
     pub fn status(&mut self) -> String {

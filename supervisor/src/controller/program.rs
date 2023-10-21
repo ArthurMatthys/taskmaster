@@ -81,14 +81,14 @@ impl Program {
             match ChildProcess::start(self, num_proc) {
                 Ok(child_process) => self.children.push(child_process),
                 Err(e) => {
-                    let _ = log(format!("Failed to rerun program: {}", e), LogInfo::Error);
+                    let _ = log(format!("Failed to rerun program: {}\n", e), LogInfo::Error);
                     self.children.push(ChildProcess {
                         child: None,
                         state: ProgramState::Backoff,
                         exit_status: ChildExitStatus::NonExistent,
                         start_secs: Some(Instant::now()),
                         end_time: None,
-                        restart_count: 0,
+                        restart_count: 1,
                     })
                 }
             }

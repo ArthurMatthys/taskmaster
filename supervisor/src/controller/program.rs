@@ -36,7 +36,7 @@ impl Program {
     pub fn reconcile_state(&mut self) {
         let mut killed = false;
         let mut fatal = false;
-        let mut stopped = true;
+        let mut stopped = false;
         let mut pending = false;
 
         for child_process in &self.children {
@@ -152,5 +152,173 @@ impl Program {
                 "Inactive program".to_string()
             }
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::os::unix::fs::OpenOptionsExt;
+    use std::os::unix::fs::PermissionsExt;
+
+    use crate::with_umask;
+    use crate::AutoRestart;
+    use crate::ChildProcess;
+    use crate::StopSignal;
+
+    use crate::ProgramState;
+    use std::fs::OpenOptions;
+    use std::io::Write;
+    use std::time::Instant;
+
+    #[test]
+    fn test_check_inexistant_command() -> Result<()> {
+        let mut program = Program {
+            name: "inexistent_command".to_string(),
+            cmd: ("/bin/toto".to_string(), vec!["3".to_string()]),
+            num_procs: 3,
+
+            auto_start: true,
+            auto_restart: AutoRestart::Unexpected,
+
+            exitcodes: vec![0],
+
+            start_retries: 3,
+            start_secs: 1,
+
+            stop_signal: StopSignal::Usr1,
+            stop_time: 1,
+            env: None,
+            working_dir: ".".to_string(),
+            umask: "0o022".to_string(),
+            stdout: "abc".to_string(),
+            stderr: "abc".to_string(),
+            children: vec![],
+        };
+
+        let _ = program.start_process(Origin::Config)?;
+        std::thread::sleep(std::time::Duration::from_secs(1));
+
+        assert_eq!(
+            program.children.first().unwrap().state,
+            ProgramState::Backoff
+        );
+        assert_eq!(program.children.len(), 3);
+        Ok(())
+    }
+
+    #[test]
+    fn test_check_autostart_false() -> Result<()> {
+        let mut program = Program {
+            name: "inexistent_command".to_string(),
+            cmd: ("/bin/sleep".to_string(), vec!["3".to_string()]),
+            num_procs: 3,
+
+            auto_start: false,
+            auto_restart: AutoRestart::Unexpected,
+
+            exitcodes: vec![0],
+
+            start_retries: 3,
+            start_secs: 1,
+
+            stop_signal: StopSignal::Usr1,
+            stop_time: 1,
+            env: None,
+            working_dir: ".".to_string(),
+            umask: "0o022".to_string(),
+            stdout: "abc".to_string(),
+            stderr: "abc".to_string(),
+            children: vec![],
+        };
+
+        let _ = program.start_process(Origin::Config)?;
+        std::thread::sleep(std::time::Duration::from_secs(1));
+
+        assert_eq!(program.children.len(), 0);
+        Ok(())
+    }
+
+    //   nginx:
+    //     cmd: "/usr/local/bin/nginx -c /etc/nginx/test.conf"
+    //     numprocs: 1
+    //     umask: 022
+    //     workingdir: /tmp
+    //     autostart: true
+    //     autorestart: unexpected
+    //     exitcodes:
+    //       - 0
+    //       - 2
+    //     startretries: 3
+    //     startsecs: 5
+    //     stopsignal: TERM
+    //     stoptime: 10
+    //     stdout: "/tmp/nginx.stdout"
+    //     stderr: "/tmp/nginx.stderr"
+    //     env:
+    //       STARTED_BY: taskmaster
+    //       ANSWER: 42
+
+    #[test]
+    fn test_check_nginx_config() -> Result<()> {
+        let mut program = Program {
+            name: "nging".to_string(),
+            cmd: (
+                "/usr/local/bin/nginx".to_string(),
+                vec!["-c".to_string(), "/etc/nginx/test.conf".to_string()],
+            ),
+            num_procs: 1,
+            umask: "0o022".to_string(),
+            auto_start: true,
+            auto_restart: AutoRestart::Unexpected,
+
+            exitcodes: vec![0, 2],
+
+            start_retries: 3,
+            start_secs: 5,
+
+            stop_signal: StopSignal::Term,
+            stop_time: 10,
+            env: None,
+            working_dir: "/tmp".to_string(),
+            stdout: "/tmp/nginx.stdout".to_string(),
+            stderr: "/tmp/nginx.stderr".to_string(),
+            children: vec![],
+        };
+
+        let _ = program.start_process(Origin::Config)?;
+        std::thread::sleep(std::time::Duration::from_secs(1));
+
+        assert_eq!(program.children.len(), 1);
+        assert_eq!(
+            program.children.first().unwrap().state,
+            ProgramState::Backoff
+        );
+        assert_eq!(
+            program.children.first().unwrap().exit_status,
+            ChildExitStatus::NonExistent
+        );
+        assert_eq!(program.children.first().unwrap().restart_count, 0);
+
+        let _ = program.check();
+        assert_eq!(program.children.len(), 1);
+        assert_eq!(
+            program.children.first().unwrap().exit_status,
+            ChildExitStatus::NonExistent
+        );
+        assert_eq!(
+            program.children.first().unwrap().state,
+            ProgramState::Backoff
+        );
+        assert_eq!(program.children.first().unwrap().restart_count, 1);
+
+        // let mut copy = program.clone();
+        // let childprocess = copy.children.first_mut().unwrap();
+        // let _ = childprocess.check(&program, 0);
+        // assert_eq!(childprocess.state, ProgramState::Backoff);
+        // assert_eq!(childprocess.exit_status, ChildExitStatus::NonExistent);
+
+        Ok(())
     }
 }

@@ -16,9 +16,9 @@ use std::process::{Command, Stdio};
 // FnOnce limits the amount of time a closure can be called
 // as we run it in a loop, it's always a new one
 // not limiting then
-pub fn with_umask<F: FnOnce() -> Result<ChildProcess>>(mask: u32, f: F) -> Result<ChildProcess> {
+pub fn with_umask<F: FnOnce() -> Result<ChildProcess>>(mask: u16, f: F) -> Result<ChildProcess> {
     unsafe {
-        let old_mask = umask(mask);
+        let old_mask = umask(mask.into());
         let result = f();
         umask(old_mask);
         result
@@ -27,7 +27,7 @@ pub fn with_umask<F: FnOnce() -> Result<ChildProcess>>(mask: u32, f: F) -> Resul
 
 impl ChildProcess {
     pub fn start(program: &Program, process_number: u8) -> Result<ChildProcess> {
-        let umask = u32::from_str_radix(&program.umask, 8).unwrap_or(0o022);
+        let umask = u16::from_str_radix(&program.umask, 8).unwrap_or(0o022);
 
         with_umask(umask, || {
             let mut command = Command::new(&program.cmd.0);

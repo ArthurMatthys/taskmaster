@@ -70,17 +70,21 @@ pub fn server() -> Result<()> {
         loop {
             let v = rx.recv_timeout(time::Duration::from_millis(100));
             match v {
-                Ok(SIGHUP) => 
-                    programs = programs.update_config()?
-                    , // sigup et down to handle here
-                Ok(sig) => 
-                    {
-                        logger::log(format!("Received signal {} on server", sig), logger::LogInfo::Info)?;
-                    break},
-                
+                Ok(SIGHUP) => programs = programs.update_config()?, // sigup et down to handle here
+                Ok(sig) => {
+                    logger::log(
+                        format!("Received signal {} on server", sig),
+                        logger::LogInfo::Info,
+                    )?;
+                    break;
+                }
+
                 Err(RecvTimeoutError::Timeout) => break,
                 Err(e) => {
-                    logger::log(format!("Signal handling error : {:?}", e), logger::LogInfo::Error)?;
+                    logger::log(
+                        format!("Signal handling error : {:?}", e),
+                        logger::LogInfo::Error,
+                    )?;
                     break;
                 }
             }

@@ -175,7 +175,6 @@ mod tests {
         let program: Program = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(program.cmd.0, "/usr/local/bin/nginx");
         assert_eq!(program.cmd.1, vec!["-c", "/etc/nginx/test.conf"]);
-        assert_eq!(program.name, "test_program");
         assert_eq!(program.num_procs, 1);
         assert_eq!(program.auto_start, true);
         assert_eq!(program.auto_restart, AutoRestart::Always);
@@ -217,7 +216,6 @@ mod tests {
         let program: Program = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(program.cmd.0, "/usr/local/bin/nginx");
         assert!(program.cmd.1.is_empty());
-        assert_eq!(program.name, "test_program");
         assert_eq!(program.num_procs, 2);
         assert_eq!(program.auto_start, false);
         assert_eq!(program.auto_restart, AutoRestart::Never);

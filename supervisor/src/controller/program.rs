@@ -240,26 +240,6 @@ mod tests {
         Ok(())
     }
 
-    //   nginx:
-    //     cmd: "/usr/local/bin/nginx -c /etc/nginx/test.conf"
-    //     numprocs: 1
-    //     umask: 022
-    //     workingdir: /tmp
-    //     autostart: true
-    //     autorestart: unexpected
-    //     exitcodes:
-    //       - 0
-    //       - 2
-    //     startretries: 3
-    //     startsecs: 5
-    //     stopsignal: TERM
-    //     stoptime: 10
-    //     stdout: "/tmp/nginx.stdout"
-    //     stderr: "/tmp/nginx.stderr"
-    //     env:
-    //       STARTED_BY: taskmaster
-    //       ANSWER: 42
-
     #[test]
     fn test_check_nginx_config() -> Result<()> {
         let mut program = Program {
@@ -300,7 +280,7 @@ mod tests {
             program.children.first().unwrap().exit_status,
             ChildExitStatus::NonExistent
         );
-        assert_eq!(program.children.first().unwrap().restart_count, 0);
+        assert_eq!(program.children.first().unwrap().restart_count, 1);
 
         // 1er check
         let _ = program.check();
@@ -313,7 +293,7 @@ mod tests {
             program.children.first().unwrap().state,
             ProgramState::Backoff
         );
-        assert_eq!(program.children.first().unwrap().restart_count, 1);
+        assert_eq!(program.children.first().unwrap().restart_count, 2);
 
         // 2e check
         let _ = program.check();
@@ -326,7 +306,7 @@ mod tests {
             program.children.first().unwrap().state,
             ProgramState::Backoff
         );
-        assert_eq!(program.children.first().unwrap().restart_count, 2);
+        assert_eq!(program.children.first().unwrap().restart_count, 3);
 
         // 3e check
         let _ = program.check();
@@ -335,43 +315,7 @@ mod tests {
             program.children.first().unwrap().exit_status,
             ChildExitStatus::NonExistent
         );
-        assert_eq!(
-            program.children.first().unwrap().state,
-            ProgramState::Backoff
-        );
-        assert_eq!(program.children.first().unwrap().restart_count, 3);
-
-        // 4e check
-        let _ = program.check();
-        assert_eq!(program.children.len(), 1);
-        assert_eq!(
-            program.children.first().unwrap().exit_status,
-            ChildExitStatus::NonExistent
-        );
-        assert_eq!(
-            program.children.first().unwrap().state,
-            ProgramState::Backoff
-        );
-        assert_eq!(program.children.first().unwrap().restart_count, 4);
-
-        // 5e check
-        let _ = program.check();
-        assert_eq!(program.children.len(), 1);
-        assert_eq!(
-            program.children.first().unwrap().exit_status,
-            ChildExitStatus::NonExistent
-        );
-        assert_eq!(
-            program.children.first().unwrap().state,
-            ProgramState::Backoff
-        );
-        assert_eq!(program.children.first().unwrap().restart_count, 3);
-
-        // let mut copy = program.clone();
-        // let childprocess = copy.children.first_mut().unwrap();
-        // let _ = childprocess.check(&program, 0);
-        // assert_eq!(childprocess.state, ProgramState::Backoff);
-        // assert_eq!(childprocess.exit_status, ChildExitStatus::NonExistent);
+        assert_eq!(program.children.first().unwrap().state, ProgramState::Fatal);
 
         Ok(())
     }

@@ -15,7 +15,7 @@ fn main() -> Result<()> {
         Ok(addr) => addr,
         Err(_) => {
             logger::log(
-                "SERVER_ADDRESS environment variable is not set, using localhost:4242 default",
+                "SERVER_ADDRESS environment variable is not set, using localhost:4242 default\n",
                 logger::LogInfo::Error,
             )?;
             "127.0.0.1:4242".to_string()

@@ -70,7 +70,7 @@ pub fn server() -> Result<()> {
             let v = rx.recv_timeout(time::Duration::from_millis(100));
             match v {
                 Ok(SIGHUP) => 
-                    programs.update_config()?
+                    programs = programs.update_config()?
                     , // sigup et down to handle here
                 Ok(sig) => 
                     {
@@ -97,7 +97,7 @@ pub fn server() -> Result<()> {
         }
 
         if !clients.read_clients(&mut programs)? {
-            logger::log(format!("Exiting server"), logger::LogInfo::Info)?;
+            logger::log("Exiting server".to_string(), logger::LogInfo::Info)?;
             break;
         };
 

@@ -47,12 +47,13 @@ where
         fs::create_dir_all(parent)?;
     }
 
-    if let Some(filename) = file.file_name() {
+    if file.file_name().is_some() {
+        // eprintln!("filename : {filename:?}");
         let mut f = fs::OpenOptions::new()
             .create(true)
             .write(true)
             .append(true)
-            .open(filename)?;
+            .open(&file)?;
 
         let now = Local::now().format("%d / %m / %Y - %H : %M : %S");
         f.write_all(format!("[{now:}] - {info:5} : {msg}").as_bytes())?;

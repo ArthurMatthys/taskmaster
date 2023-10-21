@@ -155,6 +155,9 @@ impl ChildProcess {
         let elapsed_start_time = self.start_secs.map_or(0, |start_time| {
             Instant::now().duration_since(start_time).as_secs()
         });
+        let elapsed_exit_time = self.end_time.map_or(0, |exit_time| {
+            Instant::now().duration_since(exit_time).as_secs()
+        });
 
         match &self.state {
             ProgramState::Starting => {
@@ -162,28 +165,30 @@ impl ChildProcess {
                 match &self.exit_status {
                     ChildExitStatus::Exited(_) => {
                         if self.is_exit_status_in_config(config) {
-                            // exit with expected status
                             self.state = ProgramState::Exited;
-                        } else if config.auto_restart == AutoRestart::Never {
-                            if self.restart_count < config.start_retries {
-                                self.state = ProgramState::Pending;
-                            } else {
-                                // cannot be restarted
-                                self.state = ProgramState::Fatal;
-                            }
+                        } else if self.restart_count >= config.start_retries {
+                            self.state = ProgramState::Fatal;
                         } else {
-                            if elapsed_start_time >= (config.start_secs as u64) {
-                                self.increment_start_retries();
-                                self.state = ProgramState::Backoff;
-                            }
-                            // backoff
-                            self.kill_program();
-                            if let Err(e) = self.rerun_program(config, process_number) {
-                                let _ =
-                                    log(format!("Failed to rerun program: {}", e), LogInfo::Error);
-                                return Err(e);
+                            match config.auto_restart {
+                                AutoRestart::Never => {
+                                    self.state = ProgramState::Pending;
+                                }
+                                _ => {
+                                    // backoff
+                                    self.state = ProgramState::Backoff;
+                                    self.kill_program();
+                                    self.increment_start_retries();
+                                    if let Err(e) = self.rerun_program(config, process_number) {
+                                        let _ = log(
+                                            format!("Failed to rerun program: {}", e),
+                                            LogInfo::Error,
+                                        );
+                                        return Err(e);
+                                    }
+                                }
                             }
                         }
+
                         Ok(())
                     }
                     ChildExitStatus::Running => {
@@ -202,26 +207,27 @@ impl ChildProcess {
                 match &self.exit_status {
                     ChildExitStatus::Exited(_) => {
                         if self.is_exit_status_in_config(config) {
-                            // exit with expected status
                             self.state = ProgramState::Exited;
-                        } else if config.auto_restart == AutoRestart::Never {
-                            if self.restart_count < config.start_retries {
-                                self.state = ProgramState::Pending;
-                            } else {
-                                // cannot be restarted
-                                self.state = ProgramState::Fatal;
-                            }
+                        } else if self.restart_count >= config.start_retries {
+                            self.state = ProgramState::Fatal;
                         } else {
-                            if elapsed_start_time >= (config.start_secs as u64) {
-                                self.increment_start_retries();
-                                self.state = ProgramState::Backoff;
-                            }
-                            // backoff
-                            self.kill_program();
-                            if let Err(e) = self.rerun_program(config, process_number) {
-                                let _ =
-                                    log(format!("Failed to rerun program: {}", e), LogInfo::Error);
-                                return Err(e);
+                            match config.auto_restart {
+                                AutoRestart::Never => {
+                                    self.state = ProgramState::Pending;
+                                }
+                                _ => {
+                                    // backoff
+                                    self.kill_program();
+                                    self.state = ProgramState::Backoff;
+                                    self.increment_start_retries();
+                                    if let Err(e) = self.rerun_program(config, process_number) {
+                                        let _ = log(
+                                            format!("Failed to rerun program: {}", e),
+                                            LogInfo::Error,
+                                        );
+                                        return Err(e);
+                                    }
+                                }
                             }
                         }
                         Ok(())
@@ -240,24 +246,29 @@ impl ChildProcess {
                             if self.restart_count >= config.start_retries {
                                 self.state = ProgramState::Fatal;
                             } else {
-                                if let Err(e) = self.rerun_program(config, process_number) {
-                                    let _ = log(
-                                        format!("Failed to rerun program: {}", e),
-                                        LogInfo::Error,
-                                    );
-                                    return Err(e);
+                                match config.auto_restart {
+                                    AutoRestart::Never => {
+                                        self.state = ProgramState::Pending;
+                                    }
+                                    _ => {
+                                        self.increment_start_retries();
+                                        if let Err(e) = self.rerun_program(config, process_number) {
+                                            let _ = log(
+                                                format!("Failed to rerun program: {}", e),
+                                                LogInfo::Error,
+                                            );
+                                            return Err(e);
+                                        }
+                                        self.state = ProgramState::Backoff;
+                                    }
                                 }
-                                self.increment_start_retries();
-                                self.state = ProgramState::Backoff;
                             }
                         }
                         Ok(())
                     }
                     ChildExitStatus::Running => {
-                        if elapsed_start_time >= (config.start_secs as u64) {
-                            self.restart_count = 0;
-                            self.state = ProgramState::Running;
-                        }
+                        self.state = ProgramState::Running;
+                        self.restart_count = 0;
                         Ok(())
                     }
                     ChildExitStatus::NonExistent => {
@@ -265,11 +276,11 @@ impl ChildProcess {
                         if elapsed_start_time >= (config.start_secs as u64) {
                             return Ok(());
                         }
+                        self.increment_start_retries();
                         if let Err(e) = self.rerun_program(config, process_number) {
                             let _ = log(format!("Failed to rerun program: {}", e), LogInfo::Error);
                             return Err(e);
                         }
-                        self.increment_start_retries();
                         self.state = ProgramState::Backoff;
                         Ok(())
                     }
@@ -284,6 +295,13 @@ impl ChildProcess {
                             self.state = ProgramState::Stopped;
                         } else {
                             self.state = ProgramState::Fatal;
+                        }
+                        Ok(())
+                    }
+                    ChildExitStatus::Running => {
+                        if elapsed_exit_time >= (config.stop_time as u64) {
+                            self.kill_program();
+                            self.state = ProgramState::Killed;
                         }
                         Ok(())
                     }
@@ -605,6 +623,7 @@ mod tests {
         let mut child_process = ChildProcess::start(&program, 0).unwrap();
         std::thread::sleep(std::time::Duration::from_secs(1));
 
+        use libc::{kill, SIGKILL};
         let pid = child_process.child.as_ref().unwrap().lock().unwrap().id() as libc::pid_t;
         let _ = unsafe { kill(pid, SIGKILL) };
         std::thread::sleep(std::time::Duration::from_millis(100));

@@ -8,8 +8,6 @@ use crate::model::{Error, Origin, Programs, Result};
 impl Programs {
     // loads a new configuration from a file, returns it. Doesn't change the current state
     pub fn new() -> Result<Programs> {
-        std::env::vars()
-            .for_each(|(key, value)| log(format!("{key} // {value}\n"), LogInfo::Error).unwrap());
         let path = match std::env::var("TASKMASTER_CONFIG_FILE_PATH") {
             Ok(path) => path,
             Err(e) => {
@@ -46,8 +44,17 @@ impl Programs {
         self.programs.iter_mut().try_for_each(|(_, p)| p.check())
     }
 
-    pub fn update_config(&mut self) -> Result<()> {
-        todo!();
+    pub fn update_config(&mut self) -> Result<Programs> {
+        let mut new_config = Self::new()?;
+
+        for (name, new_p) in new_config.programs.iter_mut() {
+            if let Some(p) = self.programs.get_mut(name) {
+                p.update_program(new_p)?;
+            } else {
+                new_p.start_process(Origin::Config)?;
+            }
+        }
+        Ok(new_config)
     }
 
     pub fn status(&mut self) -> String {
@@ -98,7 +105,7 @@ impl Programs {
             Action::Status => self.status(),
             // reload the config file
             Action::Reload => {
-                self.update_config()?;
+                self.programs = self.update_config()?.programs;
                 "Reload done".to_string()
             }
             // clean stop the job control and exit

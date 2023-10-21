@@ -108,10 +108,7 @@ impl Program {
             .try_for_each(|p| p.stop(stop_signal))
     }
 
-    pub fn update_program(&mut self, new_program: &Program) -> Result<()> {
-        let current_num_procs = self.children.len();
-        let new_num_procs = new_program.num_procs as usize;
-
+    pub fn update_program(&mut self, new_program: &mut Program) -> Result<()> {
         // if any of these parameters change, we need to restart the program
         if self.name != new_program.name
             || self.cmd != new_program.cmd
@@ -130,36 +127,24 @@ impl Program {
                 child_process.kill_program();
             }
 
-            self.children.clear();
-            self.start_process(Origin::Config)?;
+            new_program.start_process(Origin::Config)?;
         // if the number of processes is less, we need to kill the extra processes
-        } else if self.num_procs > new_program.num_procs {
-            for _ in new_num_procs..current_num_procs {
-                if let Some(child_process) = &mut self.children.pop() {
-                    child_process.kill_program();
+        } else {
+            while self.children.len() > new_program.num_procs.into() {
+                if let Some(mut last) = self.children.pop() {
+                    last.kill_program();
                 }
             }
-        // if the number of processes is more, we need to start the extra processes
-        } else if self.num_procs < new_program.num_procs {
-            if let Err(e) = self.start_process(Origin::Config) {
+            if let Err(e) = new_program.start_process(Origin::Config) {
                 let _ = log(format!("Failed to start program: {}", e), LogInfo::Error);
             }
         }
-
-        if self.stop_signal != new_program.stop_signal {
-            self.stop_signal = new_program.stop_signal.clone();
-        }
-
-        if self.start_secs != new_program.start_secs {
-            self.start_secs = new_program.start_secs;
-        }
-
         Ok(())
     }
 
     pub fn status(&mut self) -> String {
         format!(
-            "{:?} : {}",
+            "{} : {}",
             self.name,
             if let Some(s) = self.children.first().map(|c| c.state.clone()) {
                 s.to_string()

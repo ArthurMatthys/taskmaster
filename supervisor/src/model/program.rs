@@ -2,9 +2,14 @@ use crate::ChildProcess;
 use serde::{Deserialize, Deserializer};
 
 use std::collections::HashMap;
-// use libc;
 
-#[derive(Debug, Deserialize, PartialEq)]
+#[derive(PartialEq)]
+pub enum Origin {
+    CLI,
+    Config,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Clone)]
 #[serde(rename_all = "lowercase")]
 pub enum AutoRestart {
     Always,
@@ -12,15 +17,8 @@ pub enum AutoRestart {
     Unexpected,
 }
 
-#[derive(Debug, Deserialize, PartialEq)]
-pub enum Output {
-    File(String),
-    Fd(u16),
-    None,
-}
-
 // TODO : Change it or choose enum from libc ?
-#[derive(Debug, Deserialize, PartialEq)]
+#[derive(Debug, Deserialize, PartialEq, Clone)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum StopSignal {
     Exit,
@@ -39,7 +37,8 @@ where
     D: Deserializer<'de>,
 {
     let s: String = Deserialize::deserialize(deserializer)?;
-    match u16::from_str_radix(&s[2..], 8) {
+    let slice = s.get(2..).unwrap_or_default();
+    match u16::from_str_radix(slice, 8) {
         Ok(_) => Ok(s),
         Err(_) => Err(serde::de::Error::custom("Invalid octal format")),
     }
@@ -56,8 +55,9 @@ where
     Ok((cmd, args))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct Program {
+    #[serde(skip)]
     pub name: String,
 
     // command to execute and its arguments
@@ -121,8 +121,8 @@ pub struct Program {
     pub umask: String,
 
     // stdout and stderr redirection
-    pub stdout: Output,
-    pub stderr: Output,
+    pub stdout: String,
+    pub stderr: String,
 
     // below part is internal, it will contain all the state fields
     // used by the supervisor to manage the program
@@ -168,14 +168,13 @@ mod tests {
         stoptime: 10
         env: {"key": "value"}
         workingdir: "/path/to/dir"
-        stdout: "None"
-        stderr: "None"
+        stdout: ""
+        stderr: ""
         "#;
 
         let program: Program = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(program.cmd.0, "/usr/local/bin/nginx");
         assert_eq!(program.cmd.1, vec!["-c", "/etc/nginx/test.conf"]);
-        assert_eq!(program.name, "test_program");
         assert_eq!(program.num_procs, 1);
         assert_eq!(program.auto_start, true);
         assert_eq!(program.auto_restart, AutoRestart::Always);
@@ -191,8 +190,8 @@ mod tests {
 
         assert_eq!(program.working_dir, "/path/to/dir");
         assert_eq!(program.umask, "0o022");
-        assert_eq!(program.stdout, Output::None);
-        assert_eq!(program.stderr, Output::None);
+        assert_eq!(program.stdout, "".to_string());
+        assert_eq!(program.stderr, "".to_string());
     }
 
     #[test]
@@ -210,14 +209,13 @@ mod tests {
     stopsignal: "USR1"
     stoptime: 20
     env: {"key1": "value1", "key2": "value2"}
-    stdout: "None"
-    stderr: "None"
+    stdout: ""
+    stderr: ""
     "#;
 
         let program: Program = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(program.cmd.0, "/usr/local/bin/nginx");
         assert!(program.cmd.1.is_empty());
-        assert_eq!(program.name, "test_program");
         assert_eq!(program.num_procs, 2);
         assert_eq!(program.auto_start, false);
         assert_eq!(program.auto_restart, AutoRestart::Never);
@@ -233,8 +231,8 @@ mod tests {
         assert_eq!(program.env, Some(expected_env));
 
         assert_eq!(program.umask, "0o022");
-        assert_eq!(program.stdout, Output::None);
-        assert_eq!(program.stderr, Output::None);
+        assert_eq!(program.stdout, "".to_string());
+        assert_eq!(program.stderr, "".to_string());
     }
 
     #[test]

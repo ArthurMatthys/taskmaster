@@ -1,8 +1,18 @@
 use std::process::Child;
+use std::sync::Arc;
+use std::sync::Mutex;
 use std::time::Instant;
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum ChildExitStatus {
+    Exited(i32),
+    Running,
+    NonExistent,
+    WaitError(String),
+}
+
 // https://docs.red-dove.com/supervisor/events.html#process-state-event-type
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum ProgramState {
     // trying to start the process
     Starting,
@@ -29,13 +39,34 @@ pub enum ProgramState {
     Pending,
     // Unknown state (should never happen)
     Error,
+    // Restarting
+    Restarting,
 }
 
-#[derive(Debug)]
+impl ToString for ProgramState {
+    fn to_string(&self) -> String {
+        match self {
+            ProgramState::Starting => "starting",
+            ProgramState::Running => "running",
+            ProgramState::Backoff => "backoff",
+            ProgramState::Stopping => "stopping",
+            ProgramState::Stopped => "stopped",
+            ProgramState::Exited => "exited",
+            ProgramState::Fatal => "fatal",
+            ProgramState::Killed => "killed",
+            ProgramState::Pending => "pending",
+            ProgramState::Error => "error",
+            ProgramState::Restarting => "restarting",
+        }
+        .to_string()
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct ChildProcess {
-    pub child: Option<Child>,
+    pub child: Option<Arc<Mutex<Child>>>,
     pub state: ProgramState,
-    pub exit_status: Option<i32>,
+    pub exit_status: ChildExitStatus,
     pub start_secs: Option<Instant>,
     pub end_time: Option<Instant>,
     pub restart_count: u8,

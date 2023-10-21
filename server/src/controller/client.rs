@@ -5,7 +5,7 @@ use std::{
     net::{SocketAddr, TcpStream},
     time::Duration,
 };
-use supervisor::{Action, ParseActionError};
+use supervisor::{Action, ParseActionError, Programs};
 
 use crate::{Client, Clients};
 
@@ -37,10 +37,10 @@ impl Clients {
     /// Go through every clients and try to read from them.
     /// Remove every clients that are not connected anymore
     /// Return true if one of the client ask to shut down the program
-    pub(crate) fn read_clients(&mut self) -> Result<bool> {
+    pub(crate) fn read_clients(&mut self, programs: &mut Programs) -> Result<bool> {
         let mut to_clear = vec![];
         for (i, client) in self.clients.iter_mut().enumerate() {
-            match client.read_promt()? {
+            match client.read_promt(programs)? {
                 ClientResponse::Continue => (),
                 ClientResponse::Disconnected => to_clear.push(i),
                 ClientResponse::Exit => return Ok(false),
@@ -50,7 +50,10 @@ impl Clients {
             log(
                 format!(
                     "Disconnecting form client with address {:?}\n",
-                    self.clients[i].addr
+                    self.clients
+                        .get(i)
+                        .map(|c| c.addr.to_string())
+                        .unwrap_or_default()
                 ),
                 LogInfo::Info,
             )?;
@@ -93,7 +96,7 @@ impl Client {
     /// If nothing has been read, that means that the client has disconnected
     /// If `exit` was read, then the client wants the server to stop
     /// Otherwise, the server continues
-    fn read_promt(&mut self) -> Result<ClientResponse> {
+    fn read_promt(&mut self, programs: &mut Programs) -> Result<ClientResponse> {
         let mut buf = String::new();
         match self.reader.read_line(&mut buf) {
             Err(e) => match e.kind() {
@@ -113,12 +116,11 @@ impl Client {
                     }
                 };
 
-                self.print(format!("action received : {:?}\n", action).as_bytes());
                 if action == Action::Quit {
                     return Ok(ClientResponse::Exit);
-                }
-                // TODO
-                // Send action to programs
+                };
+
+                self.print(programs.handle_action(action)?.as_bytes())?;
             }
         };
         Ok(ClientResponse::Continue)

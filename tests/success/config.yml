@@ -1,0 +1,18 @@
+programs:
+  testProgram:
+    cmd: "/app/tests/binary/tester"
+    numprocs: 1
+    umask: 022
+    workingdir: /tmp
+    autostart: true
+    autorestart: unexpected
+    exitcodes:
+      - 0
+    startretries: 3
+    startsecs: 5
+    stopsignal: TERM
+    stoptime: 10
+    stdout: "/tmp/testProgram.stdout"
+    stderr: "/tmp/testProgram.stderr"
+    env:
+      TEST_ENV: test

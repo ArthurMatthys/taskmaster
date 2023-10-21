@@ -1,11 +1,11 @@
 [target.'cfg(feature = "cargo-clippy")']
 rustflags = [
-  "-Dclippy::expect_used",
-  "-Dclippy::unwrap_used",
-  "-Dclippy::ok_expect",
-  "-Dclippy::indexing_slicing",
-  "-Dclippy::panic",
-  "-Dclippy::match_on_vec_items",
-  "-Dclippy::manual_strip",
-  "-Dclippy::await_holding_refcell_ref"
+	"-Dclippy::expect_used",
+	"-Dclippy::unwrap_used",
+	"-Dclippy::ok_expect",
+	"-Dclippy::indexing_slicing",
+	"-Dclippy::panic",
+	"-Dclippy::match_on_vec_items",
+	"-Dclippy::manual_strip",
+	"-Dclippy::await_holding_refcell_ref",
 ]

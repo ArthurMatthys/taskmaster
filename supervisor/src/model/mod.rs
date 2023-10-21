@@ -5,7 +5,7 @@ mod program;
 mod programs;
 
 pub use actions::{Action, ParseActionError};
-pub use childprocess::{ChildProcess, ProgramState};
+pub use childprocess::{ChildExitStatus, ChildProcess, ProgramState};
 pub use error::{Error, Result};
-pub use program::{AutoRestart, Output, Program, StopSignal};
+pub use program::{AutoRestart, Origin, Program, StopSignal};
 pub use programs::Programs;

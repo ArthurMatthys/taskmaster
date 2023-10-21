@@ -1,33 +1,33 @@
-use crate::model::{AutoRestart, ChildProcess, Output, Program, ProgramState};
+use crate::model::{AutoRestart, ChildExitStatus, ChildProcess, Program, ProgramState};
 
-use crate::model::Result;
+use crate::model::{Error, Result};
 use logger::{log, LogInfo};
-use std::fs::OpenOptions;
 use std::path::Path;
+use std::sync::Arc;
+use std::sync::Mutex;
 use std::time::Instant;
 
+use libc::kill;
 use libc::umask;
 use std::fs::File;
+use std::os::unix::process::ExitStatusExt;
 use std::process::{Command, Stdio};
 
 // FnOnce limits the amount of time a closure can be called
 // as we run it in a loop, it's always a new one
 // not limiting then
-pub fn with_umask<F: FnOnce() -> Result<ChildProcess>>(mask: u32, f: F) -> Result<ChildProcess> {
+pub fn with_umask<F: FnOnce() -> Result<ChildProcess>>(mask: u16, f: F) -> Result<ChildProcess> {
     unsafe {
-        let old_mask = umask(mask);
+        let old_mask = umask(mask.into());
         let result = f();
         umask(old_mask);
-        match result {
-            Ok(child_process) => Ok(child_process),
-            Err(e) => Err(e),
-        }
+        result
     }
 }
 
 impl ChildProcess {
     pub fn start(program: &Program, process_number: u8) -> Result<ChildProcess> {
-        let umask = u32::from_str_radix(&program.umask, 8).unwrap_or(0o022);
+        let umask = u16::from_str_radix(&program.umask, 8).unwrap_or(0o022);
 
         with_umask(umask, || {
             let mut command = Command::new(&program.cmd.0);
@@ -42,83 +42,36 @@ impl ChildProcess {
                 command.envs(env_vars);
             }
 
-            let log_dir = "log_dir";
-            match &program.stdout {
-                Output::File(path) => {
-                    let path = Path::new(path);
-                    if let Some(dir) = path.parent() {
-                        std::fs::create_dir_all(dir)?;
-                    }
-                    let file = File::create(path).unwrap();
-                    command.stdout(Stdio::from(file));
-                }
-                _ => {
-                    std::fs::create_dir_all(&log_dir)?;
-                    let file_name = format!("{}_stdout_{}", program.name, process_number);
-                    let log_path = Path::new(log_dir).join(file_name);
-                    let io = match OpenOptions::new().append(true).create(true).open(&log_path) {
-                        Ok(file) => Stdio::from(file),
-                        Err(e) => {
-                            _ = log(
-                                format!(
-                                    "Failed to open log file: {}, at path {}",
-                                    e,
-                                    log_path.to_str().unwrap()
-                                ),
-                                LogInfo::Error,
-                            );
-                            Stdio::null()
-                        }
-                    };
-                    command.stdout(io);
-                }
+            let out_path = &program.stdout;
+            let path = Path::new(&out_path);
+            if let Some(dir) = path.parent() {
+                std::fs::create_dir_all(dir)?;
             }
+            let file = File::create(path)?;
+            command.stdout(Stdio::from(file));
 
-            match &program.stderr {
-                Output::File(path) => {
-                    let path = Path::new(path);
-                    if let Some(dir) = path.parent() {
-                        std::fs::create_dir_all(dir)?;
-                    }
-                    let file = File::create(path).unwrap();
-                    command.stderr(Stdio::from(file));
-                }
-                _ => {
-                    let file_name = format!("{}_stderr_{}", program.name, process_number);
-                    std::fs::create_dir_all(&log_dir)?; // Create the directory if it does not exist
-                    let log_path = Path::new(log_dir).join(file_name);
-                    let io = match OpenOptions::new().append(true).create(true).open(&log_path) {
-                        Ok(file) => Stdio::from(file),
-                        Err(e) => {
-                            _ = log(
-                                format!(
-                                    "Failed to open log file: {}, at path {}",
-                                    e,
-                                    log_path.to_str().unwrap()
-                                ),
-                                LogInfo::Error,
-                            );
-                            Stdio::null()
-                        }
-                    };
-                    command.stderr(io);
-                }
+            let err_path = &program.stderr;
+            let path = Path::new(&err_path);
+            if let Some(dir) = path.parent() {
+                std::fs::create_dir_all(dir)?;
             }
+            let file = File::create(path)?;
+            command.stderr(Stdio::from(file));
 
             let child = command.spawn()?;
 
             _ = log(
                 format!(
-                    "Started process: {}, number {}",
+                    "Started process: {}, number {}\n",
                     program.name, process_number
                 ),
                 LogInfo::Info,
             );
 
             Ok(ChildProcess {
-                child: Some(child),
+                child: Some(Arc::new(Mutex::new(child))),
                 state: ProgramState::Starting,
-                exit_status: None,
+                exit_status: ChildExitStatus::Running,
                 start_secs: Some(Instant::now()),
                 end_time: None, // killed, fatal, stopped, exited -- state that cannot be changed
                 restart_count: 0,
@@ -126,122 +79,397 @@ impl ChildProcess {
         })
     }
 
-    pub fn get_child_exit_status(&mut self) -> Option<i32> {
-        match self.child.as_mut()?.try_wait() {
-            Ok(Some(status)) => Some(status.code().unwrap_or(1)),
-            Ok(None) => None,
-            Err(e) => {
-                eprintln!("Failed to wait on child: {}", e);
-                Some(-1) // internal exit status that doesn't exist
+    // lost in state transition between None that has no update and none where started didn't work
+    pub fn get_child_exit_status(&mut self) -> Result<ChildExitStatus> {
+        match self.child.as_mut() {
+            Some(child) => {
+                match child.lock() {
+                    Ok(mut child) => match child.try_wait() {
+                        Ok(Some(status)) => Ok(status.code().map_or_else(
+                            || ChildExitStatus::Exited(status.signal().unwrap_or_default()),
+                            ChildExitStatus::Exited,
+                        )),
+                        Ok(None) => Ok(ChildExitStatus::Running),
+                        Err(e) => {
+                            let _ =
+                                log(format!("Failed to wait on child: {}\n", e), LogInfo::Error);
+                            Ok(ChildExitStatus::WaitError(e.to_string())) // internal exit status that doesn't exist
+                        }
+                    },
+                    Err(_) => {
+                        let _ = log(
+                            "Failed to lock child process.\n".to_string(),
+                            LogInfo::Error,
+                        );
+                        Err(Error::IoError {
+                            message: "Failed to lock child process.".to_string(),
+                        })
+                    }
+                }
             }
+            None => Ok(ChildExitStatus::NonExistent),
         }
     }
 
     pub fn is_exit_status_in_config(&self, config: &Program) -> bool {
         match self.exit_status {
-            Some(status) => (status >= 0) && config.exitcodes.contains(&(status as u8)),
-            None => false,
+            ChildExitStatus::Exited(status) => config.exitcodes.contains(&(status as u8)),
+            _ => false,
         }
     }
 
     pub fn kill_program(&mut self) {
         if let Some(child) = &mut self.child {
-            let _ = child.kill();
+            if let Ok(mut child) = child.lock() {
+                self.end_time = Some(Instant::now());
+                let _ = child.kill();
+            }
         }
     }
 
-    pub fn rerun_program(&mut self, program: &Program, process_number: u8) -> Result<ChildProcess> {
-        ChildProcess::start(program, process_number)
+    pub fn send_kill(&mut self, sig: u8) -> Result<()> {
+        if let Some(child) = self.child.as_ref() {
+            self.end_time = Some(Instant::now());
+            let pid = child
+                .lock()
+                .map_err(|e| Error::IoError {
+                    message: e.to_string(),
+                })?
+                .id();
+            let _ = unsafe { kill(pid as libc::pid_t, sig as libc::c_int) };
+        }
+        Ok(())
+    }
+
+    pub fn stop(&mut self, sig: u8) -> Result<()> {
+        self.state = ProgramState::Stopping;
+        self.send_kill(sig)
+    }
+    pub fn restart(&mut self, sig: u8) -> Result<()> {
+        self.state = ProgramState::Restarting;
+        self.send_kill(sig)
+    }
+
+    pub fn rerun_program(&mut self, program: &Program, process_number: u8) -> Result<()> {
+        self.kill_program();
+        let restart_count = self.restart_count;
+        let updated_child = ChildProcess::start(program, process_number)?;
+        self.child = updated_child.child;
+        // let child = self.child.unwrap().lock().unwrap().id(process_number);
+        self.restart_count = restart_count;
+        Ok(())
     }
 
     pub fn increment_start_retries(&mut self) {
         self.restart_count += 1;
     }
 
-    pub fn check(&mut self, config: &Program, process_number: u8) {
+    pub fn check(&mut self, config: &Program, process_number: u8) -> Result<()> {
         let elapsed_start_time = self.start_secs.map_or(0, |start_time| {
             Instant::now().duration_since(start_time).as_secs()
         });
-        let elapsed_stop_time = self.start_secs.map_or(0, |start_time| {
-            Instant::now().duration_since(start_time).as_secs()
+        let elapsed_exit_time = self.end_time.map_or(0, |exit_time| {
+            Instant::now().duration_since(exit_time).as_secs()
         });
 
         match &self.state {
             ProgramState::Starting => {
-                if elapsed_start_time < (config.start_secs as u64) {
-                    return;
-                }
+                self.exit_status = self.get_child_exit_status()?;
+                match &self.exit_status {
+                    ChildExitStatus::Exited(_) => {
+                        if self.is_exit_status_in_config(config) {
+                            let _ = log(
+                                format!(
+                                    "{}--{}: From starting to exited\n",
+                                    config.name, process_number
+                                ),
+                                LogInfo::Info,
+                            );
+                            self.state = ProgramState::Exited;
+                        } else if self.restart_count >= config.start_retries {
+                            let _ = log(
+                                format!(
+                                    "{}--{}: From starting to exited\n",
+                                    config.name, process_number
+                                ),
+                                LogInfo::Info,
+                            );
+                            self.state = ProgramState::Fatal;
+                        } else {
+                            match config.auto_restart {
+                                AutoRestart::Never => {
+                                    let _ = log(
+                                        format!(
+                                            "{}--{}: From starting to pending\n",
+                                            config.name, process_number
+                                        ),
+                                        LogInfo::Info,
+                                    );
+                                    self.state = ProgramState::Pending;
+                                }
+                                _ => {
+                                    // backoff
+                                    let _ = log(
+                                        format!(
+                                            "{}--{}: From starting to backoff\n",
+                                            config.name, process_number
+                                        ),
+                                        LogInfo::Info,
+                                    );
+                                    self.state = ProgramState::Backoff;
+                                    self.increment_start_retries();
+                                    if let Err(e) = self.rerun_program(config, process_number) {
+                                        let _ = log(
+                                            format!("Failed to rerun program: {}\n", e),
+                                            LogInfo::Error,
+                                        );
+                                        return Err(e);
+                                    }
+                                }
+                            }
+                        }
 
-                self.exit_status = self.get_child_exit_status();
-                if self.exit_status.is_some() {
-                    if self.is_exit_status_in_config(config) {
-                        // exit with expected status
-                        self.state = ProgramState::Exited;
-                    } else if config.auto_restart == AutoRestart::Never {
-                        // cannot be restarted
-                        self.state = ProgramState::Pending;
-                    } else {
-                        // backoff
-                        self.kill_program();
-                        let _ = self.rerun_program(config, process_number);
-                        self.increment_start_retries();
-                        self.state = ProgramState::Backoff;
+                        Ok(())
                     }
-                } else {
-                    // running
-                    self.restart_count = 0;
-                    self.state = ProgramState::Running;
+                    ChildExitStatus::Running => {
+                        self.restart_count = 0;
+                        let _ = log(
+                            format!(
+                                "{}--{}: From starting to running\n",
+                                config.name, process_number
+                            ),
+                            LogInfo::Info,
+                        );
+                        self.state = ProgramState::Running;
+                        Ok(())
+                    }
+                    ChildExitStatus::NonExistent => unreachable!(),
+                    ChildExitStatus::WaitError(e) => Err(Error::WaitError(e.clone())),
+                }
+            }
+            ProgramState::Restarting => {
+                self.exit_status = self.get_child_exit_status()?;
+                match &self.exit_status {
+                    ChildExitStatus::Exited(_) => {
+                        self.increment_start_retries();
+                        if let Err(e) = self.rerun_program(config, process_number) {
+                            let _ =
+                                log(format!("Failed to rerun program: {}\n", e), LogInfo::Error);
+                            return Err(e);
+                        }
+                        self.state = ProgramState::Starting;
+                        Ok(())
+                    }
+                    ChildExitStatus::Running => {
+                        self.state = ProgramState::Running;
+                        Ok(())
+                    }
+                    ChildExitStatus::NonExistent => unreachable!(),
+                    ChildExitStatus::WaitError(e) => Err(Error::WaitError(e.clone())),
                 }
             }
             ProgramState::Running => {
-                self.exit_status = self.get_child_exit_status();
-                if self.exit_status.is_some() {
-                    if self.is_exit_status_in_config(config) {
-                        // exit with expected status
-                        self.state = ProgramState::Exited;
-                    } else if config.auto_restart == AutoRestart::Never {
-                        // cannot be restarted
-                        self.state = ProgramState::Pending;
-                    } else {
-                        // backoff
-                        self.kill_program();
-                        let _ = self.rerun_program(config, process_number);
-                        self.increment_start_retries();
-                        self.state = ProgramState::Backoff;
+                self.exit_status = self.get_child_exit_status()?;
+                match &self.exit_status {
+                    ChildExitStatus::Exited(_) => {
+                        if self.is_exit_status_in_config(config) {
+                            let _ = log(
+                                format!(
+                                    "{}--{}: From running to exited\n",
+                                    config.name, process_number
+                                ),
+                                LogInfo::Info,
+                            );
+                            self.state = ProgramState::Exited;
+                        } else if self.restart_count >= config.start_retries {
+                            let _ = log(
+                                format!(
+                                    "{}--{}: From running to fatal\n",
+                                    config.name, process_number
+                                ),
+                                LogInfo::Info,
+                            );
+                            self.state = ProgramState::Fatal;
+                        } else {
+                            match config.auto_restart {
+                                AutoRestart::Never => {
+                                    let _ = log(
+                                        format!(
+                                            "{}--{}: From running to pending\n",
+                                            config.name, process_number
+                                        ),
+                                        LogInfo::Info,
+                                    );
+                                    self.state = ProgramState::Pending;
+                                }
+                                _ => {
+                                    // backoff
+                                    self.kill_program();
+                                    let _ = log(
+                                        format!(
+                                            "{}--{}: From running to backoff\n",
+                                            config.name, process_number
+                                        ),
+                                        LogInfo::Info,
+                                    );
+                                    self.state = ProgramState::Backoff;
+                                    self.increment_start_retries();
+                                    if let Err(e) = self.rerun_program(config, process_number) {
+                                        let _ = log(
+                                            format!("Failed to rerun program: {}\n", e),
+                                            LogInfo::Error,
+                                        );
+                                        return Err(e);
+                                    }
+                                }
+                            }
+                        }
+                        Ok(())
                     }
+                    ChildExitStatus::Running => Ok(()),
+                    ChildExitStatus::NonExistent => unreachable!(),
+                    ChildExitStatus::WaitError(e) => Err(Error::WaitError(e.clone())),
                 }
             }
             ProgramState::Backoff => {
-                if elapsed_start_time < (config.start_secs as u64) {
-                    return;
-                }
-
-                self.exit_status = self.get_child_exit_status();
-                if self.exit_status.is_some() {
-                    if self.restart_count >= config.start_retries {
-                        self.kill_program();
-                        self.state = ProgramState::Fatal;
-                    } else {
-                        self.kill_program();
-                        let _ = self.rerun_program(config, process_number);
-                        self.increment_start_retries();
-                        self.state = ProgramState::Backoff;
+                self.exit_status = self.get_child_exit_status()?;
+                match &self.exit_status {
+                    ChildExitStatus::Exited(_) => {
+                        if !self.is_exit_status_in_config(config) {
+                            self.kill_program();
+                            if self.restart_count >= config.start_retries {
+                                let _ = log(
+                                    format!(
+                                        "{}--{}: From backoff to fatal\n",
+                                        config.name, process_number
+                                    ),
+                                    LogInfo::Info,
+                                );
+                                self.state = ProgramState::Fatal;
+                            } else {
+                                match config.auto_restart {
+                                    AutoRestart::Never => {
+                                        let _ = log(
+                                            format!(
+                                                "{}--{}: From backoff to pending\n",
+                                                config.name, process_number
+                                            ),
+                                            LogInfo::Info,
+                                        );
+                                        self.state = ProgramState::Pending;
+                                    }
+                                    _ => {
+                                        self.increment_start_retries();
+                                        if let Err(e) = self.rerun_program(config, process_number) {
+                                            let _ = log(
+                                                format!("Failed to rerun program: {}\n", e),
+                                                LogInfo::Error,
+                                            );
+                                            return Err(e);
+                                        }
+                                        let _ = log(
+                                            format!(
+                                                "{}--{}: Stay in backoff\n",
+                                                config.name, process_number
+                                            ),
+                                            LogInfo::Info,
+                                        );
+                                        self.state = ProgramState::Backoff;
+                                    }
+                                }
+                            }
+                        }
+                        Ok(())
                     }
-                } else {
-                    self.restart_count = 0;
-                    self.state = ProgramState::Running;
+                    ChildExitStatus::Running => {
+                        let _ = log(
+                            format!(
+                                "{}--{}: From backoff to running\n",
+                                config.name, process_number
+                            ),
+                            LogInfo::Info,
+                        );
+                        self.state = ProgramState::Running;
+                        self.restart_count = 0;
+                        Ok(())
+                    }
+                    ChildExitStatus::NonExistent => {
+                        // starting previously failed
+                        if elapsed_start_time >= (config.start_secs as u64) {
+                            return Ok(());
+                        }
+                        if self.restart_count >= config.start_retries {
+                            let _ = log(
+                                format!(
+                                    "{}--{}: From backoff to fatal\n",
+                                    config.name, process_number
+                                ),
+                                LogInfo::Info,
+                            );
+                            self.state = ProgramState::Fatal;
+                        } else {
+                            self.increment_start_retries();
+                            if let Err(e) = self.rerun_program(config, process_number) {
+                                let _ = log(
+                                    format!("Failed to rerun program: {}\n", e),
+                                    LogInfo::Error,
+                                );
+                                return Err(e);
+                            }
+                            let _ = log(
+                                format!("{}--{}: Stay in backoff\n", config.name, process_number),
+                                LogInfo::Info,
+                            );
+                            self.state = ProgramState::Backoff;
+                        }
+                        Ok(())
+                    }
+                    ChildExitStatus::WaitError(e) => Err(Error::WaitError(e.clone())),
                 }
             }
             ProgramState::Stopping => {
-                self.exit_status = self.get_child_exit_status();
-                if self.exit_status.is_some() {
-                    self.state = ProgramState::Stopped;
-                } else {
-                    if elapsed_stop_time < (config.stop_time as u64) {
-                        return;
+                self.exit_status = self.get_child_exit_status()?;
+                match &self.exit_status {
+                    ChildExitStatus::Exited(_) => {
+                        if self.is_exit_status_in_config(config) {
+                            let _ = log(
+                                format!(
+                                    "{}--{}: From stopping to stopped\n",
+                                    config.name, process_number
+                                ),
+                                LogInfo::Info,
+                            );
+                            self.state = ProgramState::Stopped;
+                        } else {
+                            let _ = log(
+                                format!(
+                                    "{}--{}: From stopping to fatal\n",
+                                    config.name, process_number
+                                ),
+                                LogInfo::Info,
+                            );
+                            self.state = ProgramState::Fatal;
+                        }
+                        Ok(())
                     }
-                    self.kill_program();
-                    self.state = ProgramState::Killed;
+                    ChildExitStatus::Running => {
+                        if elapsed_exit_time >= (config.stop_time as u64) {
+                            self.kill_program();
+                            let _ = log(
+                                format!(
+                                    "{}--{}: From stopping to killed\n",
+                                    config.name, process_number
+                                ),
+                                LogInfo::Info,
+                            );
+                            self.state = ProgramState::Killed;
+                        }
+                        Ok(())
+                    }
+                    ChildExitStatus::WaitError(e) => Err(Error::WaitError(e.clone())),
+                    _ => {
+                        unreachable!()
+                    }
                 }
             }
             // final states that cannot be changed:
@@ -250,7 +478,10 @@ impl ChildProcess {
             // ProgramState::Stopped
             // ProgramState::Fatal
             // ProgramState::Pending
-            _ => {}
+            _ => {
+                self.kill_program();
+                Ok(())
+            }
         }
     }
 }
@@ -304,7 +535,7 @@ mod tests {
                 Ok(ChildProcess {
                     child: None,
                     state: ProgramState::Running,
-                    exit_status: None,
+                    exit_status: ChildExitStatus::NonExistent,
                     start_secs: Some(Instant::now()),
                     end_time: None,
                     restart_count: 0,
@@ -332,7 +563,7 @@ mod tests {
                 Ok(ChildProcess {
                     child: None,                  // This is the mock child process
                     state: ProgramState::Running, // or any other valid state
-                    exit_status: None,
+                    exit_status: ChildExitStatus::NonExistent,
                     start_secs: Some(Instant::now()),
                     end_time: None,
                     restart_count: 0,
@@ -342,7 +573,7 @@ mod tests {
     }
 
     #[test]
-    fn test_check_starting_running() {
+    fn test_check_starting_running() -> Result<()> {
         let program = Program {
             name: "sleep_working".to_string(),
             cmd: ("/bin/sleep".to_string(), vec!["5".to_string()]),
@@ -361,20 +592,21 @@ mod tests {
             env: None,
             working_dir: ".".to_string(),
             umask: "0o022".to_string(),
-            stdout: Output::None,
-            stderr: Output::None,
+            stdout: "abc".to_string(),
+            stderr: "abc".to_string(),
             children: vec![],
         };
 
         let mut child_process = ChildProcess::start(&program, 0).unwrap();
         std::thread::sleep(std::time::Duration::from_secs(1));
-        child_process.check(&program, 0);
+        child_process.check(&program, 0)?;
 
         assert_eq!(child_process.state, ProgramState::Running);
+        Ok(())
     }
 
     #[test]
-    fn test_check_starting_exited() {
+    fn test_check_starting_exited() -> Result<()> {
         let program = Program {
             name: "sleep_exiting".to_string(),
             cmd: ("/bin/sleep".to_string(), vec!["0".to_string()]),
@@ -393,20 +625,21 @@ mod tests {
             env: None,
             working_dir: ".".to_string(),
             umask: "0o022".to_string(),
-            stdout: Output::None,
-            stderr: Output::None,
+            stdout: "abc".to_string(),
+            stderr: "abc".to_string(),
             children: vec![],
         };
 
         let mut child_process = ChildProcess::start(&program, 0).unwrap();
         std::thread::sleep(std::time::Duration::from_secs(1));
-        child_process.check(&program, 0);
+        child_process.check(&program, 0)?;
 
         assert_eq!(child_process.state, ProgramState::Exited);
+        Ok(())
     }
 
     #[test]
-    fn test_check_starting_backoff() {
+    fn test_check_starting_backoff() -> Result<()> {
         let program = Program {
             name: "sleep_backoff".to_string(),
             cmd: ("/bin/sleep".to_string(), vec!["2".to_string()]),
@@ -425,8 +658,8 @@ mod tests {
             env: None,
             working_dir: ".".to_string(),
             umask: "0o022".to_string(),
-            stdout: Output::None,
-            stderr: Output::None,
+            stdout: "abc".to_string(),
+            stderr: "abc".to_string(),
             children: vec![],
         };
 
@@ -434,17 +667,18 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_secs(1));
 
         use libc::{kill, SIGKILL};
-        let pid = child_process.child.as_ref().unwrap().id() as libc::pid_t;
+        let pid = child_process.child.as_ref().unwrap().lock().unwrap().id() as libc::pid_t;
         let _ = unsafe { kill(pid, SIGKILL) };
         std::thread::sleep(std::time::Duration::from_millis(100));
 
-        child_process.check(&program, 0);
+        child_process.check(&program, 0)?;
 
         assert_eq!(child_process.state, ProgramState::Backoff);
+        Ok(())
     }
 
     #[test]
-    fn test_check_starting_pending() {
+    fn test_check_starting_pending() -> Result<()> {
         let program = Program {
             name: "sleep_pending".to_string(),
             cmd: ("/bin/sleep".to_string(), vec!["3".to_string()]),
@@ -463,8 +697,8 @@ mod tests {
             env: None,
             working_dir: ".".to_string(),
             umask: "0o022".to_string(),
-            stdout: Output::None,
-            stderr: Output::None,
+            stdout: "abc".to_string(),
+            stderr: "abc".to_string(),
             children: vec![],
         };
 
@@ -472,17 +706,18 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_secs(1));
 
         use libc::{kill, SIGKILL};
-        let pid = child_process.child.as_ref().unwrap().id() as libc::pid_t;
+        let pid = child_process.child.as_ref().unwrap().lock().unwrap().id() as libc::pid_t;
         let _ = unsafe { kill(pid, SIGKILL) };
         std::thread::sleep(std::time::Duration::from_millis(100));
 
-        child_process.check(&program, 0);
+        child_process.check(&program, 0)?;
 
         assert_eq!(child_process.state, ProgramState::Pending);
+        Ok(())
     }
 
     #[test]
-    fn test_check_backoff_fatal() {
+    fn test_check_backoff_fatal() -> Result<()> {
         let program = Program {
             name: "sleep_fatal".to_string(),
             cmd: ("/bin/sleep".to_string(), vec!["3".to_string()]),
@@ -501,8 +736,8 @@ mod tests {
             env: None,
             working_dir: ".".to_string(),
             umask: "0o022".to_string(),
-            stdout: Output::None,
-            stderr: Output::None,
+            stdout: "abc".to_string(),
+            stderr: "abc".to_string(),
             children: vec![],
         };
 
@@ -510,7 +745,7 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_secs(1));
 
         use libc::{kill, SIGKILL};
-        let pid = child_process.child.as_ref().unwrap().id() as libc::pid_t;
+        let pid = child_process.child.as_ref().unwrap().lock().unwrap().id() as libc::pid_t;
         let _ = unsafe { kill(pid, SIGKILL) };
         std::thread::sleep(std::time::Duration::from_millis(100));
 
@@ -518,13 +753,14 @@ mod tests {
         child_process.state = ProgramState::Backoff;
         child_process.restart_count = 3;
 
-        child_process.check(&program, 0);
+        child_process.check(&program, 0)?;
 
         assert_eq!(child_process.state, ProgramState::Fatal);
+        Ok(())
     }
 
     #[test]
-    fn test_check_backoff_backoff() {
+    fn test_check_backoff_backoff() -> Result<()> {
         let program = Program {
             name: "sleep_fatal".to_string(),
             cmd: ("/bin/sleep".to_string(), vec!["3".to_string()]),
@@ -543,8 +779,8 @@ mod tests {
             env: None,
             working_dir: ".".to_string(),
             umask: "0o022".to_string(),
-            stdout: Output::None,
-            stderr: Output::None,
+            stdout: "abc".to_string(),
+            stderr: "abc".to_string(),
             children: vec![],
         };
 
@@ -552,7 +788,7 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_secs(1));
 
         use libc::{kill, SIGKILL};
-        let pid = child_process.child.as_ref().unwrap().id() as libc::pid_t;
+        let pid = child_process.child.as_ref().unwrap().lock().unwrap().id() as libc::pid_t;
         let _ = unsafe { kill(pid, SIGKILL) };
         std::thread::sleep(std::time::Duration::from_millis(100));
 
@@ -560,9 +796,10 @@ mod tests {
         child_process.state = ProgramState::Backoff;
         child_process.restart_count = 2;
 
-        child_process.check(&program, 0);
+        child_process.check(&program, 0)?;
 
         assert_eq!(child_process.state, ProgramState::Backoff);
         assert_eq!(child_process.restart_count, 3);
+        Ok(())
     }
 }

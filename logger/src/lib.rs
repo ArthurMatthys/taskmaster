@@ -29,9 +29,10 @@ impl LogInfo {
 
 static FILE: OnceCell<String> = OnceCell::new();
 
-fn log_file() -> &'static String {
-    FILE.get_or_init(|| {
-        std::env::var("TASKMASTER_LOGFILE").unwrap_or_else(|_| "taskmaster.log".to_string())
+fn log_file() -> std::io::Result<&'static String> {
+    FILE.get_or_try_init(|| {
+        std::env::var("TASKMASTER_LOGFILE")
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))
     })
 }
 
@@ -39,7 +40,7 @@ pub fn log<S>(msg: S, info: LogInfo) -> std::io::Result<()>
 where
     S: Display,
 {
-    let file = PathBuf::from(log_file());
+    let file = PathBuf::from(log_file()?);
     if !cfg!(debug_assertions) && info.is_debug() {
         return Ok(());
     }
@@ -47,12 +48,12 @@ where
         fs::create_dir_all(parent)?;
     }
 
-    if let Some(filename) = file.file_name() {
+    if file.file_name().is_some() {
         let mut f = fs::OpenOptions::new()
             .create(true)
             .write(true)
             .append(true)
-            .open(filename)?;
+            .open(&file)?;
 
         let now = Local::now().format("%d / %m / %Y - %H : %M : %S");
         f.write_all(format!("[{now:}] - {info:5} : {msg}").as_bytes())?;

@@ -9,8 +9,8 @@ edition = "2021"
 clap = { workspace = true }
 daemonize = { path="../daemonize" }
 libc = { workspace = true}
-reedline-repl-rs = "1.0.7"
+logger = { path= "../logger/" }
+reedline-repl-rs = { workspace = true }
 serde_yaml = { workspace = true }
 serde = { workspace = true }
-server = { path="../server" }
 supervisor = { path="../supervisor" }

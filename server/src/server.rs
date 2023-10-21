@@ -1,6 +1,6 @@
 use core::time;
 use daemonize::Result;
-use libc::SIGCHLD;
+use libc::{SIGCHLD, SIGHUP};
 use signal_hook::consts::{FORBIDDEN, TERM_SIGNALS};
 use signal_hook::flag;
 use signal_hook::iterator::exfiltrator::WithOrigin;
@@ -36,15 +36,21 @@ fn register_signal_hook(sender: Sender<i32>) -> Result<()> {
     Ok(())
 }
 
-pub fn server(programs: Programs) -> Result<()> {
-    let listener = TcpListener::bind(std::env::var("SERVER_ADDRESS").unwrap_or_else(|_| {
-        logger::log(
-            "SERVER_ADDRESS environment variable is not set, using localhost:4242 default",
-            logger::LogInfo::Error,
-        )
-        .unwrap();
-        "127.0.0.1:4242".to_string()
-    }))?;
+pub fn server() -> Result<()> {
+    let mut programs = Programs::new(true)?;
+
+    let addr = match std::env::var("SERVER_ADDRESS") {
+        Ok(addr) => addr,
+        Err(_) => {
+            logger::log(
+                "SERVER_ADDRESS environment variable is not set, using localhost:4242 default",
+                logger::LogInfo::Error,
+            )?;
+            "127.0.0.1:4242".to_string()
+        }
+    };
+
+    let listener = TcpListener::bind(addr)?;
     let (tx, rx): (Sender<i32>, Receiver<i32>) = mpsc::channel();
 
     let _ = thread::spawn(|| register_signal_hook(tx));
@@ -64,11 +70,21 @@ pub fn server(programs: Programs) -> Result<()> {
         loop {
             let v = rx.recv_timeout(time::Duration::from_millis(100));
             match v {
-                Ok(_) => eprintln!("received : {:?}", v), // sigup et down to handle here
+                Ok(SIGHUP) => programs = programs.update_config()?, // sigup et down to handle here
+                Ok(sig) => {
+                    logger::log(
+                        format!("Received signal {} on server", sig),
+                        logger::LogInfo::Info,
+                    )?;
+                    break;
+                }
+
                 Err(RecvTimeoutError::Timeout) => break,
                 Err(e) => {
-                    eprintln!("Unknown error : {:?}", e);
-                    // quit program with proper error management / clean state
+                    logger::log(
+                        format!("Signal handling error : {:?}", e),
+                        logger::LogInfo::Error,
+                    )?;
                     break;
                 }
             }
@@ -85,13 +101,14 @@ pub fn server(programs: Programs) -> Result<()> {
             }
         }
 
-        if !clients.read_clients()? {
-            eprintln!("Exiting");
+        if !clients.read_clients(&mut programs)? {
+            logger::log("Exiting server".to_string(), logger::LogInfo::Info)?;
             break;
         };
 
         // check status of children
         // check_child_status
+        programs.check()?;
 
         thread::sleep(time::Duration::from_millis(300));
     }

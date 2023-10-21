@@ -2,24 +2,23 @@ mod controller;
 mod model;
 
 pub use controller::*;
+use daemonize::Daemon;
 pub use daemonize::{Error, Result};
-// use logger::{log, LogInfo};
+use logger::LogInfo;
 pub use model::*;
-use supervisor::Programs;
 
 mod server;
 use server::server;
 
 fn main() -> Result<()> {
-    server(Programs::default())
-    // let config_file_path = match std::env::var("TASKMASTER_CONFIG_FILE_PATH") {
-    //     Ok(path) => path,
-    //     Err(e) => return Err(daemonize::Error::ConfigEnvVarNotFound(e)),
-    // };
-    //
-    // let initial_programs = Programs::default();
-    // match initial_programs.load_config(config_file_path.split_whitespace()) {
-    //     Ok(programs) => server(programs),
-    //     Err(e) => return Err(supervisor::Error::ConfigFileNotFound(e.to_string()).into()),
-    // }
+    let daemon = Daemon::new(server)?;
+    match daemon.start() {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            if let Err(e) = logger::log(format!("Error : {e}\n"), LogInfo::Error) {
+                eprintln!("Failed to log error in daemon : {e}");
+            }
+            Err(e)
+        }
+    }
 }

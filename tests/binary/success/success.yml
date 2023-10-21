@@ -1,0 +1,20 @@
+programs:
+  testProgram:
+    cmd: "./binary/tester --exitCode 0 --sleepTime 1 --waitTime 0"
+    numprocs: 3
+    umask: 022
+    workingdir: /tmp
+    autostart: true
+    autorestart: unexpected
+    exitcodes:
+      - 0
+    startretries: 3
+    startsecs: 5
+    stopsignal: TERM
+    stoptime: 10
+    stdout:
+      File: "/tmp/testProgram.stdout"
+    stderr:
+      File: /tmp/testProgram.stderr
+    env:
+      TEST_ENV: test

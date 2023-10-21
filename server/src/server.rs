@@ -97,7 +97,11 @@ pub fn server() -> Result<()> {
         }
 
         if !clients.read_clients(&mut programs)? {
-            logger::log("Exiting server".to_string(), logger::LogInfo::Info)?;
+            programs
+                .programs
+                .iter_mut()
+                .for_each(|(_, p)| p.kill_processes());
+            logger::log("Exiting server\n".to_string(), logger::LogInfo::Info)?;
             break;
         };
 

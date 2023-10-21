@@ -67,7 +67,13 @@ impl Programs {
         self.programs
             .iter_mut()
             .filter(|(name, _)| !dealt.contains(name))
-            .for_each(|(_, p)| p.kill_processes());
+            .for_each(|(name, p)| {
+                let _ = log(
+                    format!("Removing {name} from programs since it's not in the config anymore\n"),
+                    LogInfo::Info,
+                );
+                p.kill_processes()
+            });
         Ok(new_config)
     }
 
@@ -213,7 +219,7 @@ mod tests {
     }
 
     #[test]
-    fn test_reload() -> Result<()> {
+    fn test_restart() -> Result<()> {
         let mut programs = config();
         programs.start_all()?;
         assert_eq!(first_child_state(&programs), ProgramState::Starting);
@@ -221,9 +227,12 @@ mod tests {
         assert_eq!(first_child_state(&programs), ProgramState::Running);
         programs.restart(&["sleep".to_string()])?;
         assert_eq!(first_child_state(&programs), ProgramState::Restarting);
+        sleep(1);
+        programs.check()?;
+        assert_eq!(first_child_state(&programs), ProgramState::Starting);
         programs.check()?;
         assert_eq!(first_child_state(&programs), ProgramState::Running);
-        sleep(2);
+        sleep(3);
         programs.check()?;
         assert_eq!(first_child_state(&programs), ProgramState::Exited);
         Ok(())
@@ -296,7 +305,7 @@ mod tests {
         assert_eq!(first_child_state(&programs), ProgramState::Stopping);
         sleep(1);
         programs.check()?;
-        assert_eq!(first_child_state(&programs), ProgramState::Stopped);
+        assert_eq!(first_child_state(&programs), ProgramState::Fatal);
         Ok(())
     }
     #[test]

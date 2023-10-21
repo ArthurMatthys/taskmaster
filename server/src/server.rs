@@ -17,11 +17,6 @@ use crate::Clients;
 
 /// Send any signal received into a channel for the main loop to deal with.
 fn register_signal_hook(sender: Sender<i32>) -> Result<()> {
-    let term_now = Arc::new(AtomicBool::new(false));
-    for sig in TERM_SIGNALS {
-        flag::register_conditional_shutdown(*sig, 1, Arc::clone(&term_now))?;
-        flag::register(*sig, Arc::clone(&term_now))?;
-    }
     let mut forbidden = vec![SIGCHLD];
     forbidden.extend(FORBIDDEN);
     let sigs = (1..32).filter(|s| !forbidden.contains(s));
@@ -73,7 +68,7 @@ pub fn server() -> Result<()> {
                 Ok(SIGHUP) => programs = programs.update_config()?, // sigup et down to handle here
                 Ok(sig) => {
                     logger::log(
-                        format!("Received signal {} on server", sig),
+                        format!("Received signal {} on server\n", sig),
                         logger::LogInfo::Info,
                     )?;
                     break;

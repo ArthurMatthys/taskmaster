@@ -1,27 +1,17 @@
 use std::{fs, process};
 
-use logger::log;
-
 use crate::{
     error::{get_err, Error, Result},
     file_handler::unlock,
-    LogInfo,
 };
 
 /// Can't find it in libc, this value has been taken from nyx::sys::signal, but it's the same as in
 /// signal.h
 const NSIG: libc::c_int = 32;
 
-pub fn handle_sig(value: i32) {
+pub fn handle_sig() {
     if let Err(e) = fs::create_dir_all("/var/log/matt_daemon") {
         eprintln!("Cannot create dir to log signal input : {e}");
-        return;
-    }
-
-    let info = LogInfo::Warn;
-    let msg = format!("Received signal {value}. Exiting the daemon\n");
-    if let Err(e) = log(msg, info) {
-        eprintln!("Error writing logs : {:?}", e);
         return;
     }
 

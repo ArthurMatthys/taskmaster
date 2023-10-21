@@ -21,9 +21,13 @@ pub enum AutoRestart {
 #[derive(Debug, Deserialize, PartialEq, Clone)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum StopSignal {
-    Exit,
-    Usr1,
-    Term,
+    Usr1 = 10,
+    Usr2 = 12,
+    Term = 15,
+    Quit = 3,
+    Int = 2,
+    Tin = 21,
+    Prof = 27,
 }
 
 // default umask

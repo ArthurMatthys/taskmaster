@@ -287,6 +287,7 @@ mod tests {
             children: vec![],
         };
 
+        // 1er
         let _ = program.start_process(Origin::Config)?;
         std::thread::sleep(std::time::Duration::from_secs(1));
 
@@ -301,6 +302,7 @@ mod tests {
         );
         assert_eq!(program.children.first().unwrap().restart_count, 0);
 
+        // 1er check
         let _ = program.check();
         assert_eq!(program.children.len(), 1);
         assert_eq!(
@@ -312,6 +314,58 @@ mod tests {
             ProgramState::Backoff
         );
         assert_eq!(program.children.first().unwrap().restart_count, 1);
+
+        // 2e check
+        let _ = program.check();
+        assert_eq!(program.children.len(), 1);
+        assert_eq!(
+            program.children.first().unwrap().exit_status,
+            ChildExitStatus::NonExistent
+        );
+        assert_eq!(
+            program.children.first().unwrap().state,
+            ProgramState::Backoff
+        );
+        assert_eq!(program.children.first().unwrap().restart_count, 2);
+
+        // 3e check
+        let _ = program.check();
+        assert_eq!(program.children.len(), 1);
+        assert_eq!(
+            program.children.first().unwrap().exit_status,
+            ChildExitStatus::NonExistent
+        );
+        assert_eq!(
+            program.children.first().unwrap().state,
+            ProgramState::Backoff
+        );
+        assert_eq!(program.children.first().unwrap().restart_count, 3);
+
+        // 4e check
+        let _ = program.check();
+        assert_eq!(program.children.len(), 1);
+        assert_eq!(
+            program.children.first().unwrap().exit_status,
+            ChildExitStatus::NonExistent
+        );
+        assert_eq!(
+            program.children.first().unwrap().state,
+            ProgramState::Backoff
+        );
+        assert_eq!(program.children.first().unwrap().restart_count, 4);
+
+        // 5e check
+        let _ = program.check();
+        assert_eq!(program.children.len(), 1);
+        assert_eq!(
+            program.children.first().unwrap().exit_status,
+            ChildExitStatus::NonExistent
+        );
+        assert_eq!(
+            program.children.first().unwrap().state,
+            ProgramState::Backoff
+        );
+        assert_eq!(program.children.first().unwrap().restart_count, 3);
 
         // let mut copy = program.clone();
         // let childprocess = copy.children.first_mut().unwrap();

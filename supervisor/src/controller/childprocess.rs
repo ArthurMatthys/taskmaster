@@ -152,7 +152,6 @@ impl ChildProcess {
         let restart_count = self.restart_count;
         let updated_child = ChildProcess::start(program, process_number)?;
         self.child = updated_child.child;
-        // let child = self.child.unwrap().lock().unwrap().id(process_number);
         self.restart_count = restart_count;
         Ok(())
     }

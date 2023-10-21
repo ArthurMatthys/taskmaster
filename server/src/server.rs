@@ -37,7 +37,7 @@ fn register_signal_hook(sender: Sender<i32>) -> Result<()> {
 }
 
 pub fn server() -> Result<()> {
-    let mut programs = Programs::new()?;
+    let mut programs = Programs::new(true)?;
 
     let addr = match std::env::var("SERVER_ADDRESS") {
         Ok(addr) => addr,

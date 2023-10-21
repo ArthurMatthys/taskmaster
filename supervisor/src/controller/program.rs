@@ -132,9 +132,7 @@ impl Program {
             || self.stdout != new_program.stdout
             || self.stderr != new_program.stderr
         {
-            for child_process in &mut self.children {
-                child_process.kill_program();
-            }
+            self.kill_processes();
 
             new_program.start_process(Origin::Config)?;
         // if the number of processes is less, we need to kill the extra processes

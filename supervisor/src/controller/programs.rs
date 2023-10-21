@@ -1,13 +1,13 @@
 use logger::{log, LogInfo};
 
 use crate::Action;
-use std::{fs::File, io::BufReader};
+use std::{collections::HashSet, fs::File, io::BufReader};
 
 use crate::model::{Error, Origin, Programs, Result};
 
 impl Programs {
     // loads a new configuration from a file, returns it. Doesn't change the current state
-    pub fn new_from_path(path: String) -> Result<Programs> {
+    pub fn new_from_path(path: String, start_process: bool) -> Result<Programs> {
         let mut args = path.split_whitespace();
         match args.next() {
             Some(filename) => {
@@ -23,7 +23,9 @@ impl Programs {
                         if args.next().is_some() {
                             Err(Error::TooManyArguments)
                         } else {
-                            new_config.start_all()?;
+                            if start_process {
+                                new_config.start_all()?;
+                            }
                             Ok(new_config)
                         }
                     }
@@ -33,7 +35,7 @@ impl Programs {
             None => Err(Error::NoFilenameProvided),
         }
     }
-    pub fn new() -> Result<Programs> {
+    pub fn new(start_process: bool) -> Result<Programs> {
         let path = match std::env::var("TASKMASTER_CONFIG_FILE_PATH") {
             Ok(path) => path,
             Err(e) => {
@@ -44,7 +46,7 @@ impl Programs {
                 return Err(Error::ConfigEnvVarNotFound(e));
             }
         };
-        Self::new_from_path(path)
+        Self::new_from_path(path, start_process)
     }
 
     pub fn check(&mut self) -> Result<()> {
@@ -52,15 +54,21 @@ impl Programs {
     }
 
     pub fn update_config(&mut self) -> Result<Programs> {
-        let mut new_config = Self::new()?;
+        let mut new_config = Self::new(false)?;
+        let mut dealt = HashSet::new();
 
         for (name, new_p) in new_config.programs.iter_mut() {
+            dealt.insert(name);
             if let Some(p) = self.programs.get_mut(name) {
                 p.update_program(new_p)?;
             } else {
                 new_p.start_process(Origin::Config)?;
             }
         }
+        self.programs
+            .iter_mut()
+            .filter(|(name, _)| !dealt.contains(name))
+            .for_each(|(_, p)| p.kill_processes());
         Ok(new_config)
     }
 
